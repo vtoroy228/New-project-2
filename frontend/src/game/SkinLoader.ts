@@ -28,8 +28,11 @@ export interface SkinEntity {
   hitbox: SkinRect;
 }
 
+export type ObstacleCategory = 'low' | 'high' | 'flying';
+
 export interface SkinObstacle extends SkinEntity {
   id: string;
+  category: ObstacleCategory;
   yOffset?: number;
 }
 
@@ -53,7 +56,16 @@ const skinManifests: Record<string, SkinManifest> = {
 const loadImage = async (url: string): Promise<HTMLImageElement> => {
   const image = new Image();
   image.src = url;
-  await image.decode();
+
+  try {
+    await image.decode();
+  } catch {
+    await new Promise<void>((resolve, reject) => {
+      image.onload = () => resolve();
+      image.onerror = () => reject(new Error(`Failed to load image: ${url}`));
+    });
+  }
+
   return image;
 };
 

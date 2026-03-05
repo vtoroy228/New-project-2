@@ -33,10 +33,11 @@ input {
 }
 
 .app-shell {
-  min-height: 100vh;
+  min-height: 100dvh;
   max-width: var(--layout-max-width);
   margin: 0 auto;
-  padding: var(--space-sm);
+  padding: calc(var(--space-sm) + env(safe-area-inset-top)) var(--space-sm)
+    calc(var(--space-sm) + env(safe-area-inset-bottom));
   display: flex;
   flex-direction: column;
   gap: var(--space-sm);
@@ -61,6 +62,11 @@ input {
   color: var(--color-text-dark);
 }
 
+.icon-button-placeholder {
+  opacity: 0;
+  pointer-events: none;
+}
+
 .header-user {
   flex: 1;
   display: flex;
@@ -80,6 +86,7 @@ input {
   align-items: center;
   justify-content: center;
   font-weight: var(--font-weight-bold);
+  flex-shrink: 0;
 }
 
 .header-name {
@@ -93,13 +100,33 @@ input {
 .app-content {
   flex: 1;
   min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+
+.app-centered {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.auth-error-card {
+  width: 100%;
+  text-align: center;
+  font-size: var(--font-size-sm);
 }
 
 .screen-stack {
+  width: 100%;
   display: flex;
   flex-direction: column;
   gap: var(--space-md);
   min-height: 100%;
+}
+
+.game-screen-stack {
+  flex: 1;
+  min-height: 0;
 }
 
 .card {
@@ -122,26 +149,40 @@ input {
 }
 
 .score-board-card {
-  padding: var(--space-md) var(--space-lg);
+  padding: var(--space-sm) var(--space-md);
 }
 
-.score-grid {
-  display: grid;
-  gap: var(--space-md);
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+.metrics-row {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-xs);
+  min-width: 0;
+}
+
+.metric-cell {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xxs);
 }
 
 .metric-label {
   display: block;
   color: var(--color-accent-magenta);
   text-transform: uppercase;
-  font-size: var(--font-size-xs);
-  margin-bottom: var(--space-xs);
+  font-size: clamp(10px, 2.5vw, 12px);
+  line-height: 1;
 }
 
 .metric-value {
-  font-size: var(--font-size-lg);
+  font-size: clamp(18px, 5vw, 24px);
   line-height: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .metric-value-success {
@@ -153,6 +194,12 @@ input {
   padding: var(--space-sm);
 }
 
+.game-card-flex {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
 .canvas-wrapper {
   position: relative;
   border-radius: var(--radius-lg);
@@ -160,8 +207,15 @@ input {
   background: var(--color-card-muted);
 }
 
+.canvas-wrapper-stretch {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+}
+
 .game-canvas {
   width: 100%;
+  height: 100%;
   display: block;
   border-radius: var(--radius-lg);
 }
@@ -170,8 +224,8 @@ input {
   position: absolute;
   inset: 0;
   margin: auto;
-  width: 120px;
-  height: 120px;
+  width: clamp(92px, 22vw, 120px);
+  height: clamp(92px, 22vw, 120px);
   border-radius: var(--radius-full);
   border: 0;
   background: var(--color-accent-magenta);
@@ -179,6 +233,7 @@ input {
   font-size: var(--font-size-md);
   font-weight: var(--font-weight-bold);
   box-shadow: var(--shadow-floating);
+  z-index: 10;
 }
 
 .settings-fab {
@@ -193,6 +248,47 @@ input {
   box-shadow: var(--shadow-card);
   color: var(--color-text-dark);
   font-size: var(--font-size-md);
+  z-index: 11;
+}
+
+.confetti-layer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 9;
+}
+
+.confetti-piece {
+  position: absolute;
+  top: -8%;
+  width: 9px;
+  height: 16px;
+  border-radius: var(--radius-sm);
+  background: var(--color-accent-magenta);
+  animation-name: confetti-fall;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+
+.confetti-piece:nth-child(2n) {
+  background: var(--color-accent-blue);
+}
+
+.confetti-piece:nth-child(3n) {
+  background: var(--color-accent-lime);
+}
+
+@keyframes confetti-fall {
+  0% {
+    transform: translateY(-5%) rotate(0deg);
+    opacity: 1;
+  }
+
+  100% {
+    transform: translateY(120%) rotate(280deg);
+    opacity: 0;
+  }
 }
 
 .bottom-sheet-overlay {
@@ -316,7 +412,7 @@ input {
   grid-template-columns: repeat(3, 1fr);
   gap: var(--space-xs);
   position: sticky;
-  bottom: var(--space-sm);
+  bottom: env(safe-area-inset-bottom);
 }
 
 .tab-item {
@@ -415,6 +511,8 @@ input {
   justify-content: space-between;
   align-items: center;
   gap: var(--space-sm);
+  position: sticky;
+  bottom: 0;
 }
 
 .profile-grid {
@@ -448,11 +546,8 @@ input {
 
 @media (max-width: 560px) {
   .app-shell {
-    padding: var(--space-xs);
-  }
-
-  .score-grid {
-    grid-template-columns: 1fr;
+    padding-left: var(--space-xs);
+    padding-right: var(--space-xs);
   }
 
   .leaderboard-list-card {

@@ -10,8 +10,10 @@ interface AuthOptions {
   optional?: boolean;
 }
 
+const isDev = process.env.NODE_ENV !== 'production';
+
 const isDevMockEnabled = (): boolean => {
-  return process.env.NODE_ENV !== 'production' && process.env.DEV_MOCK_TELEGRAM === 'true';
+  return isDev && process.env.DEV_MOCK_TELEGRAM === 'true';
 };
 
 const resolveInitData = (request: FastifyRequest): string | null => {
@@ -58,6 +60,16 @@ const upsertUser = async (telegramUser: {
 export const withAuth = (options: AuthOptions = {}) => {
   return async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
     const initData = resolveInitData(request);
+    if (isDev) {
+      request.log.info(
+        {
+          authHeaderPresent: Boolean(request.headers.authorization),
+          initDataLength: initData?.length ?? 0,
+          optional: Boolean(options.optional)
+        },
+        '[auth] incoming request'
+      );
+    }
 
     if (!initData) {
       if (options.optional) {
@@ -72,6 +84,9 @@ export const withAuth = (options: AuthOptions = {}) => {
       initData === 'dev-mock' && isDevMockEnabled()
         ? buildDevMockUserFromEnv()
         : null;
+    if (isDev && telegramUser) {
+      request.log.info({ authMode: 'dev-mock' }, '[auth] using mock telegram user');
+    }
 
     if (!telegramUser) {
       const botToken = process.env.TELEGRAM_BOT_TOKEN;
@@ -85,6 +100,9 @@ export const withAuth = (options: AuthOptions = {}) => {
     }
 
     if (!telegramUser) {
+      if (isDev) {
+        request.log.info({ authStatus: 'invalid_init_data' }, '[auth] rejected initData');
+      }
       if (options.optional) {
         return;
       }
@@ -98,6 +116,16 @@ export const withAuth = (options: AuthOptions = {}) => {
     if (user.isBanned) {
       reply.code(403).send({ error: 'User is banned' });
       return;
+    }
+    if (isDev) {
+      request.log.info(
+        {
+          authStatus: 'ok',
+          userId: user.id,
+          telegramId: user.telegramId.toString()
+        },
+        '[auth] user validated'
+      );
     }
 
     request.telegramUser = telegramUser;

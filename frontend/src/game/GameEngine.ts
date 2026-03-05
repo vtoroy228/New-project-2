@@ -1,10 +1,11 @@
+import { soundManager } from './SoundManager';
+import { triggerJumpHaptic } from '../services/telegram';
 import { tokens } from '../ui/theme/tokens';
-import { triggerImpact } from '../services/telegram';
-import type { LoadedSkin, SkinObstacle } from './SkinLoader';
+import type { LoadedSkin, ObstacleCategory, SkinObstacle } from './SkinLoader';
 
 interface GameEngineSettings {
   volume: number;
-  vibration: boolean;
+  vibrationEnabled: boolean;
 }
 
 export interface GameTickSnapshot {
@@ -46,14 +47,13 @@ interface Actor {
   velocityY: number;
 }
 
-const STORAGE_VOLUME_KEY = 'dino-game-volume';
+const WORLD_WIDTH = 500;
+const WORLD_HEIGHT = 300;
 
 export const getDefaultSettings = (): GameEngineSettings => {
-  const storedVolume = Number.parseInt(localStorage.getItem(STORAGE_VOLUME_KEY) ?? '70', 10);
-
   return {
-    volume: Number.isFinite(storedVolume) ? Math.min(100, Math.max(0, storedVolume)) : 70,
-    vibration: true
+    volume: 0.7,
+    vibrationEnabled: true
   };
 };
 
@@ -75,6 +75,9 @@ export class GameEngine {
   private startTimestamp = 0;
   private lastTimestamp = 0;
   private nextSpawnDistance = 0;
+  private lastSpawnCategory: ObstacleCategory | null = null;
+  private lastGapWasTight = false;
+  private spawnCooldown = 0;
   private rafId = 0;
 
   private readonly keydownHandler = (event: KeyboardEvent) => {
@@ -110,8 +113,30 @@ export class GameEngine {
       velocityY: 0
     };
 
+    this.setSettings(this.settings);
+    this.resize(this.canvas.clientWidth || WORLD_WIDTH, this.canvas.clientHeight || WORLD_HEIGHT);
     this.resetState();
     this.attachControls();
+    this.render();
+  }
+
+  resize(width: number, height: number): void {
+    const safeWidth = Math.max(280, Math.floor(width));
+    const safeHeight = Math.max(180, Math.floor(height));
+    const ratio = window.devicePixelRatio || 1;
+
+    const targetWidth = Math.floor(safeWidth * ratio);
+    const targetHeight = Math.floor(safeHeight * ratio);
+
+    if (this.canvas.width === targetWidth && this.canvas.height === targetHeight) {
+      return;
+    }
+
+    this.canvas.width = targetWidth;
+    this.canvas.height = targetHeight;
+    this.canvas.style.width = `${safeWidth}px`;
+    this.canvas.style.height = `${safeHeight}px`;
+
     this.render();
   }
 
@@ -121,11 +146,19 @@ export class GameEngine {
   }
 
   setSettings(nextSettings: GameEngineSettings): void {
-    this.settings = nextSettings;
-    localStorage.setItem(STORAGE_VOLUME_KEY, String(Math.round(nextSettings.volume)));
+    this.settings = {
+      volume: Math.min(1, Math.max(0, nextSettings.volume)),
+      vibrationEnabled: nextSettings.vibrationEnabled
+    };
+
+    soundManager.setVolume(this.settings.volume);
   }
 
-  start(): void {
+  restart(): void {
+    this.start();
+  }
+
+  private start(): void {
     this.resetState();
     this.running = true;
     this.startTimestamp = performance.now();
@@ -133,11 +166,7 @@ export class GameEngine {
     this.loop(this.startTimestamp);
   }
 
-  restart(): void {
-    this.start();
-  }
-
-  stop(): void {
+  private stop(): void {
     this.running = false;
     if (this.rafId) {
       cancelAnimationFrame(this.rafId);
@@ -161,7 +190,10 @@ export class GameEngine {
     this.obstaclesPassed = 0;
     this.playTime = 0;
     this.obstacles = [];
-    this.nextSpawnDistance = this.randomGap();
+    this.lastSpawnCategory = null;
+    this.lastGapWasTight = false;
+    this.spawnCooldown = 0;
+    this.nextSpawnDistance = this.randomGap('low');
     this.dino.velocityY = 0;
     this.dino.y = this.groundY - this.dino.height;
 
@@ -174,7 +206,7 @@ export class GameEngine {
   }
 
   private get groundY(): number {
-    return this.canvas.height - this.skin.manifest.physics.groundOffset;
+    return WORLD_HEIGHT - this.skin.manifest.physics.groundOffset;
   }
 
   private jump(): void {
@@ -188,7 +220,8 @@ export class GameEngine {
     }
 
     this.dino.velocityY = -this.skin.manifest.physics.jumpVelocity;
-    triggerImpact(this.settings.vibration);
+    soundManager.play('jump', { throttleMs: 120 });
+    triggerJumpHaptic(this.settings.vibrationEnabled);
   }
 
   private loop = (timestamp: number): void => {
@@ -223,8 +256,9 @@ export class GameEngine {
 
     this.nextSpawnDistance -= this.speed * deltaSeconds;
     if (this.nextSpawnDistance <= 0) {
-      this.spawnObstacle();
-      this.nextSpawnDistance = this.randomGap();
+      const type = this.pickObstacleType();
+      this.spawnObstacle(type);
+      this.nextSpawnDistance = this.randomGap(type.category);
     }
 
     this.obstacles = this.obstacles
@@ -232,7 +266,7 @@ export class GameEngine {
         ...obstacle,
         x: obstacle.x - this.speed * deltaSeconds
       }))
-      .filter((obstacle) => obstacle.x + obstacle.width > -8);
+      .filter((obstacle) => obstacle.x + obstacle.width > -30);
 
     for (const obstacle of this.obstacles) {
       if (!obstacle.passed && obstacle.x + obstacle.width < this.dino.x) {
@@ -258,30 +292,100 @@ export class GameEngine {
     });
   }
 
-  private spawnObstacle(): void {
-    const types = this.skin.manifest.obstacles;
-    const randomType = types[Math.floor(Math.random() * types.length)] ?? types[0];
-    const image = this.skin.obstacleImages[randomType.id];
+  private randomGap(category: ObstacleCategory): number {
+    const { minObstacleGap, maxObstacleGap, initialSpeed } = this.skin.manifest.physics;
+
+    const speedFactor = Math.max(0, (this.speed - initialSpeed) / initialSpeed);
+    let min = minObstacleGap + speedFactor * 95;
+    let max = maxObstacleGap + speedFactor * 140;
+
+    if (category === 'flying') {
+      min += 90;
+      max += 140;
+    }
+
+    if (this.spawnCooldown > 0) {
+      min += 70;
+    }
+
+    if (this.lastGapWasTight) {
+      min += 60;
+    }
+
+    if (max < min + 60) {
+      max = min + 60;
+    }
+
+    const gap = min + Math.random() * (max - min);
+    this.lastGapWasTight = gap < min + 48;
+    return gap;
+  }
+
+  private pickObstacleType(): SkinObstacle {
+    const obstacles = this.skin.manifest.obstacles;
+    const initialSpeed = this.skin.manifest.physics.initialSpeed;
+    const isFast = this.speed > initialSpeed * 1.15;
+
+    let candidates = obstacles.filter((obstacle) => {
+      if (obstacle.category === 'flying' && (obstacle.yOffset ?? 0) < 56) {
+        return false;
+      }
+
+      if (this.spawnCooldown > 0 && obstacle.category === 'flying') {
+        return false;
+      }
+
+      if (isFast && this.lastSpawnCategory === 'flying' && obstacle.category === 'flying') {
+        return false;
+      }
+
+      return true;
+    });
+
+    if (candidates.length === 0) {
+      candidates = obstacles;
+    }
+
+    const weighted = candidates.flatMap((obstacle) => {
+      if (obstacle.category === 'low') {
+        return [obstacle, obstacle];
+      }
+
+      if (obstacle.category === 'flying') {
+        return this.speed > initialSpeed * 1.05 ? [obstacle] : [];
+      }
+
+      return [obstacle];
+    });
+
+    const pool = weighted.length > 0 ? weighted : candidates;
+    const selected = pool[Math.floor(Math.random() * pool.length)] ?? pool[0];
+
+    if (selected.category === 'flying' || selected.category === 'high') {
+      this.spawnCooldown = 1;
+    } else if (this.spawnCooldown > 0) {
+      this.spawnCooldown -= 1;
+    }
+
+    this.lastSpawnCategory = selected.category;
+
+    return selected;
+  }
+
+  private spawnObstacle(type: SkinObstacle): void {
+    const image = this.skin.obstacleImages[type.id];
 
     const obstacle: ObstacleInstance = {
-      type: randomType,
+      type,
       image,
-      x: this.canvas.width + 20,
-      y: this.groundY - randomType.height - (randomType.yOffset ?? 0),
-      width: randomType.width,
-      height: randomType.height,
+      x: WORLD_WIDTH + 20,
+      y: this.groundY - type.height - (type.yOffset ?? 0),
+      width: type.width,
+      height: type.height,
       passed: false
     };
 
     this.obstacles.push(obstacle);
-  }
-
-  private randomGap(): number {
-    const { minObstacleGap, maxObstacleGap } = this.skin.manifest.physics;
-    const speedFactor = Math.min(1.35, this.speed / this.skin.manifest.physics.initialSpeed);
-    const min = minObstacleGap / speedFactor;
-    const max = maxObstacleGap / speedFactor;
-    return min + Math.random() * (max - min);
   }
 
   private checkCollision(obstacle: ObstacleInstance): boolean {
@@ -327,12 +431,18 @@ export class GameEngine {
   private render(): void {
     const ctx = this.context;
 
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+
+    const scaleX = this.canvas.width / WORLD_WIDTH;
+    const scaleY = this.canvas.height / WORLD_HEIGHT;
+    ctx.setTransform(scaleX, 0, 0, scaleY, 0, 0);
+
     ctx.fillStyle = tokens.colors.canvasSky;
-    ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    ctx.fillRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
 
     ctx.fillStyle = tokens.colors.canvasGround;
-    ctx.fillRect(0, this.groundY, this.canvas.width, this.canvas.height - this.groundY);
+    ctx.fillRect(0, this.groundY, WORLD_WIDTH, WORLD_HEIGHT - this.groundY);
 
     for (const obstacle of this.obstacles) {
       if (obstacle.image.complete) {

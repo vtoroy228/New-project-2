@@ -1,20 +1,55 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { submitGameResult } from '../services/api';
 import { GameEngine, getDefaultSettings } from '../game/GameEngine';
+import { soundManager } from '../game/SoundManager';
 import { DEFAULT_SKIN, loadSkin } from '../game/SkinLoader';
+import { triggerGameOverHaptic, triggerSuccessHaptic } from '../services/telegram';
 import { tokens } from '../ui/theme/tokens';
 import { BottomSheet } from '../ui/components/BottomSheet';
 import { Button } from '../ui/components/Button';
 import { Card } from '../ui/components/Card';
+import { ConfettiOverlay } from '../ui/components/ConfettiOverlay';
 import { Slider } from '../ui/components/Slider';
 import { Toggle } from '../ui/components/Toggle';
 
-interface GameScreenProps {
-  settingsTrigger: number;
+const VOLUME_KEY = 'dino.volume';
+const VIBRATION_KEY = 'dino.vibration';
+const LOCAL_BEST_KEY = 'dino.localBest';
+
+interface SettingsState {
+  volume: number;
+  vibrationEnabled: boolean;
 }
 
-const SETTINGS_KEY = 'dino-game-settings-v1';
-const LOCAL_BEST_KEY = 'dino-local-best-score';
+const clamp = (value: number, min: number, max: number): number => {
+  if (!Number.isFinite(value)) {
+    return min;
+  }
+
+  return Math.min(max, Math.max(min, value));
+};
+
+const parseBoolean = (value: string | null, fallback: boolean): boolean => {
+  if (value === 'true') {
+    return true;
+  }
+
+  if (value === 'false') {
+    return false;
+  }
+
+  return fallback;
+};
+
+const loadSettings = (): SettingsState => {
+  const defaults = getDefaultSettings();
+  const volumeRaw = Number.parseFloat(localStorage.getItem(VOLUME_KEY) ?? '');
+
+  return {
+    volume: clamp(Number.isFinite(volumeRaw) ? volumeRaw : defaults.volume, 0, 1),
+    vibrationEnabled: parseBoolean(localStorage.getItem(VIBRATION_KEY), defaults.vibrationEnabled)
+  };
+};
 
 const formatTime = (seconds: number): string => {
   const safe = Math.max(0, Math.floor(seconds));
@@ -23,48 +58,45 @@ const formatTime = (seconds: number): string => {
   return `${minutes}:${remain}`;
 };
 
-interface StoredSettings {
-  volume: number;
-  vibration: boolean;
-}
-
-const loadSettings = (): StoredSettings => {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? '{}') as Partial<StoredSettings>;
-    if (typeof parsed.volume === 'number' && typeof parsed.vibration === 'boolean') {
-      return {
-        volume: Math.min(100, Math.max(0, parsed.volume)),
-        vibration: parsed.vibration
-      };
-    }
-  } catch {
-    // no-op
+const createSessionId = (): string => {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+    return crypto.randomUUID();
   }
 
-  return getDefaultSettings();
+  return `${Date.now()}-${Math.floor(Math.random() * 100000)}`;
 };
 
-export const GameScreen = ({ settingsTrigger }: GameScreenProps) => {
+export const GameScreen = () => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const canvasWrapperRef = useRef<HTMLDivElement | null>(null);
   const engineRef = useRef<GameEngine | null>(null);
+  const settingsRef = useRef<SettingsState>(loadSettings());
+  const confettiTimeoutRef = useRef<number | null>(null);
+
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [skinReady, setSkinReady] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
   const [score, setScore] = useState(0);
   const [playTime, setPlayTime] = useState(0);
-  const [localBest, setLocalBest] = useState(() => Number(localStorage.getItem(LOCAL_BEST_KEY) ?? 0));
-  const [settings, setSettings] = useState<StoredSettings>(() => loadSettings());
-  const settingsRef = useRef(settings);
-
-  useEffect(() => {
-    setSettingsOpen(true);
-  }, [settingsTrigger]);
+  const [confettiVisible, setConfettiVisible] = useState(false);
+  const [localBest, setLocalBest] = useState(() => {
+    const parsed = Number.parseInt(localStorage.getItem(LOCAL_BEST_KEY) ?? '0', 10);
+    return Number.isFinite(parsed) ? parsed : 0;
+  });
+  const [settings, setSettings] = useState<SettingsState>(() => loadSettings());
+  const localBestRef = useRef(localBest);
 
   useEffect(() => {
     settingsRef.current = settings;
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+    localStorage.setItem(VOLUME_KEY, settings.volume.toFixed(2));
+    localStorage.setItem(VIBRATION_KEY, String(settings.vibrationEnabled));
     engineRef.current?.setSettings(settings);
+    soundManager.setVolume(settings.volume);
   }, [settings]);
+
+  useEffect(() => {
+    localBestRef.current = localBest;
+  }, [localBest]);
 
   useEffect(() => {
     let disposed = false;
@@ -90,30 +122,53 @@ export const GameScreen = ({ settingsTrigger }: GameScreenProps) => {
           setIsRunning(snapshot.running);
         },
         onGameOver: async (snapshot) => {
-          setIsRunning(false);
+          const vibrationEnabled = settingsRef.current.vibrationEnabled;
+          triggerGameOverHaptic(vibrationEnabled);
 
-          setLocalBest((currentBest) => {
-            const nextBest = Math.max(currentBest, snapshot.score);
-            if (nextBest !== currentBest) {
-              localStorage.setItem(LOCAL_BEST_KEY, String(nextBest));
+          const isNewRecord = snapshot.score > localBestRef.current;
+          if (isNewRecord) {
+            localBestRef.current = snapshot.score;
+            setLocalBest(snapshot.score);
+            localStorage.setItem(LOCAL_BEST_KEY, String(snapshot.score));
+          }
+
+          if (isNewRecord) {
+            setConfettiVisible(true);
+            soundManager.play('fireworks');
+            triggerSuccessHaptic(vibrationEnabled);
+
+            if (confettiTimeoutRef.current) {
+              window.clearTimeout(confettiTimeoutRef.current);
             }
-            return nextBest;
-          });
+
+            confettiTimeoutRef.current = window.setTimeout(() => {
+              setConfettiVisible(false);
+            }, 2200);
+          }
 
           try {
             await submitGameResult({
               score: snapshot.score,
               playTime: snapshot.playTime,
               obstacles: snapshot.obstacles,
-              sessionId: crypto.randomUUID()
+              sessionId: createSessionId()
             });
           } catch (error) {
-            console.warn('Game result submit failed', error);
+            if (import.meta.env.DEV) {
+              console.info('[game] failed to submit result', error);
+            }
           }
         }
       });
 
       engineRef.current = engine;
+
+      const wrapper = canvasWrapperRef.current;
+      if (wrapper) {
+        const bounds = wrapper.getBoundingClientRect();
+        engine.resize(bounds.width, bounds.height);
+      }
+
       setSkinReady(true);
     };
 
@@ -121,8 +176,36 @@ export const GameScreen = ({ settingsTrigger }: GameScreenProps) => {
 
     return () => {
       disposed = true;
+
+      if (confettiTimeoutRef.current) {
+        window.clearTimeout(confettiTimeoutRef.current);
+      }
+
       engineRef.current?.destroy();
       engineRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    const wrapper = canvasWrapperRef.current;
+    if (!wrapper) {
+      return;
+    }
+
+    const resize = () => {
+      const bounds = wrapper.getBoundingClientRect();
+      engineRef.current?.resize(bounds.width, bounds.height);
+    };
+
+    const observer = new ResizeObserver(resize);
+    observer.observe(wrapper);
+
+    window.addEventListener('orientationchange', resize);
+    resize();
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('orientationchange', resize);
     };
   }, []);
 
@@ -130,36 +213,41 @@ export const GameScreen = ({ settingsTrigger }: GameScreenProps) => {
     if (score > 0 && !isRunning) {
       return 'ЕЩЁ РАЗ';
     }
+
     return 'PLAY';
   }, [score, isRunning]);
 
   const handleStart = () => {
+    setConfettiVisible(false);
     engineRef.current?.restart();
     setIsRunning(true);
   };
 
+  const sliderValue = Math.round(settings.volume * 100);
+
   return (
-    <div className="screen-stack">
+    <div className="screen-stack game-screen-stack">
       <Card className="score-board-card">
-        <div className="score-grid">
-          <div>
-            <span className="metric-label">очки</span>
-            <strong className="metric-value">{score}</strong>
-          </div>
-          <div>
-            <span className="metric-label">время</span>
+        <div className="metrics-row" role="list" aria-label="Game metrics">
+          <div className="metric-cell" role="listitem">
+            <span className="metric-label">TIME</span>
             <strong className="metric-value metric-value-success">{formatTime(playTime)}</strong>
           </div>
-          <div>
-            <span className="metric-label">локальный рекорд</span>
+          <div className="metric-cell" role="listitem">
+            <span className="metric-label">SCORE</span>
+            <strong className="metric-value">{score}</strong>
+          </div>
+          <div className="metric-cell" role="listitem">
+            <span className="metric-label">HI</span>
             <strong className="metric-value">{localBest}</strong>
           </div>
         </div>
       </Card>
 
-      <Card className="game-card">
-        <div className="canvas-wrapper">
-          <canvas ref={canvasRef} width={500} height={280} className="game-canvas" />
+      <Card className="game-card game-card-flex">
+        <div ref={canvasWrapperRef} className="canvas-wrapper canvas-wrapper-stretch">
+          <canvas ref={canvasRef} className="game-canvas" />
+          <ConfettiOverlay visible={confettiVisible && !isRunning} />
 
           {!isRunning && skinReady ? (
             <button type="button" className="play-overlay-button" onClick={handleStart}>
@@ -184,15 +272,22 @@ export const GameScreen = ({ settingsTrigger }: GameScreenProps) => {
           min={0}
           max={100}
           step={1}
-          value={settings.volume}
-          valueLabel={`${settings.volume}%`}
-          onChange={(event) => setSettings((current) => ({ ...current, volume: Number(event.currentTarget.value) }))}
+          value={sliderValue}
+          valueLabel={`${sliderValue}%`}
+          onChange={(event) => {
+            const raw = Number.parseInt(event.currentTarget.value, 10);
+            const nextPercent = clamp(Number.isFinite(raw) ? raw : 0, 0, 100);
+            setSettings((current) => ({
+              ...current,
+              volume: nextPercent / 100
+            }));
+          }}
         />
 
         <Toggle
           label="вибрация"
-          checked={settings.vibration}
-          onChange={(nextValue) => setSettings((current) => ({ ...current, vibration: nextValue }))}
+          checked={settings.vibrationEnabled}
+          onChange={(nextValue) => setSettings((current) => ({ ...current, vibrationEnabled: nextValue }))}
         />
 
         <Button fullWidth onClick={() => setSettingsOpen(false)}>

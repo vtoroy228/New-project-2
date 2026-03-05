@@ -37,7 +37,9 @@ export const ProfileScreen = () => {
           setUser(response.user);
         }
       } catch (error) {
-        console.warn('Failed to load profile', error);
+        if (import.meta.env.DEV) {
+          console.info('[profile] failed to load', error);
+        }
       }
     };
 

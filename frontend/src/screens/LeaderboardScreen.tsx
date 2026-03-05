@@ -26,7 +26,9 @@ export const LeaderboardScreen = () => {
           setData(next);
         }
       } catch (error) {
-        console.warn('Failed to load leaderboard', error);
+        if (import.meta.env.DEV) {
+          console.info('[leaderboard] failed to load', error);
+        }
       } finally {
         if (active) {
           setLoading(false);

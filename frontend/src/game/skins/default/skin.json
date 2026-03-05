@@ -24,6 +24,7 @@
   "obstacles": [
     {
       "id": "cactus",
+      "category": "high",
       "sprite": "cactus.svg",
       "width": 32,
       "height": 58,
@@ -35,7 +36,21 @@
       }
     },
     {
+      "id": "rock",
+      "category": "low",
+      "sprite": "rock.svg",
+      "width": 42,
+      "height": 26,
+      "hitbox": {
+        "x": 4,
+        "y": 5,
+        "width": 34,
+        "height": 18
+      }
+    },
+    {
       "id": "drone",
+      "category": "flying",
       "sprite": "drone.svg",
       "width": 50,
       "height": 32,
@@ -45,7 +60,7 @@
         "width": 40,
         "height": 22
       },
-      "yOffset": 66
+      "yOffset": 78
     }
   ]
 }

@@ -47,7 +47,7 @@ export interface GlobalLeaderboardResponse {
 
 type AuthMode = 'required' | 'optional' | 'none';
 
-class ApiError extends Error {
+export class ApiError extends Error {
   status: number;
 
   constructor(status: number, message: string) {
@@ -57,6 +57,19 @@ class ApiError extends Error {
 }
 
 const API_PREFIX = '/api';
+
+const devLog = (message: string, details?: Record<string, unknown>): void => {
+  if (!import.meta.env.DEV) {
+    return;
+  }
+
+  if (details) {
+    console.info(`[api] ${message}`, details);
+    return;
+  }
+
+  console.info(`[api] ${message}`);
+};
 
 const getAuthHeaders = (mode: AuthMode): Record<string, string> => {
   if (mode === 'none') {
@@ -71,6 +84,8 @@ const getAuthHeaders = (mode: AuthMode): Record<string, string> => {
 
     return {};
   }
+
+  devLog('auth header attached', { initDataLength: initData.length, mode });
 
   return {
     Authorization: `tma ${initData}`
@@ -87,17 +102,24 @@ const request = async <TResponse>(
 ): Promise<TResponse> => {
   const { method = 'GET', auth = 'required', body } = options;
 
+  const headers: Record<string, string> = {
+    ...getAuthHeaders(auth)
+  };
+
+  const hasBody = body !== undefined && method !== 'GET';
+  if (hasBody) {
+    headers['Content-Type'] = 'application/json';
+  }
+
   const response = await fetch(`${API_PREFIX}${path}`, {
     method,
-    headers: {
-      'Content-Type': 'application/json',
-      ...getAuthHeaders(auth)
-    },
-    body: body ? JSON.stringify(body) : undefined
+    headers,
+    body: hasBody ? JSON.stringify(body) : undefined
   });
 
   const payload = (await response.json().catch(() => ({}))) as { error?: string } & TResponse;
   if (!response.ok) {
+    devLog('request failed', { path, status: response.status, error: payload.error ?? 'unknown' });
     throw new ApiError(response.status, payload.error ?? 'Unexpected API error');
   }
 
@@ -107,7 +129,8 @@ const request = async <TResponse>(
 export const validateAuth = async (): Promise<AuthResponse> => {
   return request<AuthResponse>('/auth/validate', {
     method: 'POST',
-    auth: 'required'
+    auth: 'required',
+    body: {}
   });
 };
 
