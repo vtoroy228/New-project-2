@@ -76,6 +76,7 @@ docker run -p 3000:3000 --env-file .env telegram-dino
 - App calls `POST /api/auth/validate` at startup and stores validated user in UI state.
 - Guest/mock mode works only outside Telegram and only if `VITE_DEV_MOCK_TELEGRAM=true`.
 - If Telegram WebApp exists but `initData` is empty, app shows explicit error and does not fallback to guest.
+- `TELEGRAM_AUTH_MAX_AGE_SECONDS` (default `300`) limits how old `auth_date` can be.
 
 ## Cloudflared (when ngrok unavailable)
 
@@ -115,6 +116,16 @@ cloudflared tunnel --url http://localhost:5173
 - `POST /api/admin/ban-user`
 - `POST /api/admin/unban-user`
 - `POST /api/admin/reset-leaderboard`
+
+## Backend Resilience Notes
+
+- In-memory per-IP rate limits are enabled for auth/game/leaderboard/admin routes.
+- `POST /api/game/result` is idempotent by `(userId, sessionId)`.
+  - Apply DB schema update before use:
+
+```bash
+npm run prisma:migrate
+```
 
 ## Admin Reset (without initData copy)
 

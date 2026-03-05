@@ -39,6 +39,28 @@ export const submitGameResult = async (
 
   const suspicious = isSuspiciousScore(score, playTime, obstacles);
 
+  if (sessionId) {
+    const duplicate = await prisma.gameResult.findFirst({
+      where: {
+        userId,
+        sessionId
+      }
+    });
+
+    if (duplicate) {
+      const user = await prisma.user.findUniqueOrThrow({
+        where: { id: userId },
+        select: { bestScore: true }
+      });
+
+      return {
+        suspicious,
+        scoreAccepted: !suspicious,
+        userBestScore: user.bestScore
+      };
+    }
+  }
+
   const userBestScore = await prisma.$transaction(async (tx) => {
     const user = await tx.user.findUniqueOrThrow({ where: { id: userId } });
 
@@ -85,6 +107,17 @@ export const submitGameResult = async (
     });
 
     return updated.bestScore;
+  }).catch(async (error: unknown) => {
+    const knownRequestError = error as { code?: string };
+    if (sessionId && knownRequestError.code === 'P2002') {
+      const user = await prisma.user.findUniqueOrThrow({
+        where: { id: userId },
+        select: { bestScore: true }
+      });
+      return user.bestScore;
+    }
+
+    throw error;
   });
 
   if (suspicious) {

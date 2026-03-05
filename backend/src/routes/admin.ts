@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import { prisma } from '../db/prisma';
 import { adminMiddleware } from '../middleware/admin';
 import { withAuth } from '../middleware/auth';
+import { rateLimit } from '../middleware/rateLimit';
 
 interface TelegramBody {
   telegramId: string;
@@ -25,7 +26,7 @@ const parseTelegramId = (body: unknown): bigint | null => {
 };
 
 export const adminRoutes: FastifyPluginAsync = async (fastify) => {
-  const adminPreHandlers = [withAuth(), adminMiddleware];
+  const adminPreHandlers = [rateLimit('admin', { windowMs: 60_000, max: 30 }), withAuth(), adminMiddleware];
 
   fastify.post('/ban-user', { preHandler: adminPreHandlers }, async (request, reply) => {
     const telegramId = parseTelegramId(request.body);

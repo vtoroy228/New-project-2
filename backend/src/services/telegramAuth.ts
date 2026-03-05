@@ -117,6 +117,9 @@ export const verifyTelegramInitData = (
   initData: string,
   botToken: string
 ): TelegramInitDataUser | null => {
+  const maxAuthAgeSeconds = Number.parseInt(process.env.TELEGRAM_AUTH_MAX_AGE_SECONDS ?? '300', 10);
+  const authTtl = Number.isFinite(maxAuthAgeSeconds) && maxAuthAgeSeconds > 0 ? maxAuthAgeSeconds : 300;
+
   const safeDecode = (value: string): string => {
     try {
       return decodeURIComponent(value);
@@ -147,6 +150,15 @@ export const verifyTelegramInitData = (
 
     const authDate = Number.parseInt(params.get('auth_date') ?? '0', 10);
     if (!Number.isFinite(authDate) || authDate <= 0) {
+      continue;
+    }
+
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    if (authDate > nowSeconds + 30) {
+      continue;
+    }
+
+    if (nowSeconds - authDate > authTtl) {
       continue;
     }
 

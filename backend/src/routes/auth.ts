@@ -1,5 +1,6 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { withAuth } from '../middleware/auth';
+import { rateLimit } from '../middleware/rateLimit';
 
 interface UserView {
   id: string;
@@ -38,13 +39,17 @@ const toSafeUser = (user: UserView) => {
 };
 
 export const authRoutes: FastifyPluginAsync = async (fastify) => {
-  fastify.post('/validate', { preHandler: withAuth() }, async (request) => {
-    return {
-      user: toSafeUser(request.user!)
-    };
-  });
+  fastify.post(
+    '/validate',
+    { preHandler: [rateLimit('auth.validate', { windowMs: 60_000, max: 40 }), withAuth()] },
+    async (request) => {
+      return {
+        user: toSafeUser(request.user!)
+      };
+    }
+  );
 
-  fastify.get('/me', { preHandler: withAuth() }, async (request) => {
+  fastify.get('/me', { preHandler: [rateLimit('auth.me', { windowMs: 60_000, max: 60 }), withAuth()] }, async (request) => {
     return {
       user: toSafeUser(request.user!)
     };

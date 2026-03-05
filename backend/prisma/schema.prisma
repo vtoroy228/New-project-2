@@ -39,4 +39,5 @@ model GameResult {
 
   @@index([userId, createdAt])
   @@index([createdAt])
+  @@unique([userId, sessionId])
 }

@@ -13,7 +13,11 @@ dotenv.config({ path: path.resolve(process.cwd(), '.env') });
 dotenv.config({ path: path.resolve(process.cwd(), '../.env') });
 
 const app = fastify({
-  logger: true
+  logger: true,
+  bodyLimit: 256 * 1024,
+  requestTimeout: 15_000,
+  keepAliveTimeout: 60_000,
+  maxParamLength: 200
 });
 
 app.register(authRoutes, { prefix: '/api/auth' });

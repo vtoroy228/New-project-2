@@ -1,5 +1,6 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { withAuth } from '../middleware/auth';
+import { rateLimit } from '../middleware/rateLimit';
 import { submitGameResult } from '../services/gameService';
 
 interface GameResultBody {
@@ -37,7 +38,7 @@ const parseBody = (body: unknown): GameResultBody | null => {
 };
 
 export const gameRoutes: FastifyPluginAsync = async (fastify) => {
-  fastify.post('/result', { preHandler: withAuth() }, async (request, reply) => {
+  fastify.post('/result', { preHandler: [rateLimit('game.result', { windowMs: 60_000, max: 120 }), withAuth()] }, async (request, reply) => {
     const payload = parseBody(request.body);
 
     if (!payload) {
