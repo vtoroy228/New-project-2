@@ -25,9 +25,21 @@ export const getGlobalLeaderboard = async (
   currentUserId?: string
 ): Promise<GlobalLeaderboardResponse> => {
   const [totalPlayers, topUsers] = await Promise.all([
-    prisma.user.count({ where: { isBanned: false } }),
+    prisma.user.count({
+      where: {
+        isBanned: false,
+        bestScore: {
+          gt: 0
+        }
+      }
+    }),
     prisma.user.findMany({
-      where: { isBanned: false },
+      where: {
+        isBanned: false,
+        bestScore: {
+          gt: 0
+        }
+      },
       orderBy: [{ bestScore: 'desc' }, { updatedAt: 'asc' }],
       take: 10
     })
@@ -50,7 +62,7 @@ export const getGlobalLeaderboard = async (
       where: { id: currentUserId }
     });
 
-    if (currentUser && !currentUser.isBanned) {
+    if (currentUser && !currentUser.isBanned && currentUser.bestScore > 0) {
       const rankAhead = await prisma.user.count({
         where: {
           isBanned: false,

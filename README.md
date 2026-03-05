@@ -116,6 +116,20 @@ cloudflared tunnel --url http://localhost:5173
 - `POST /api/admin/unban-user`
 - `POST /api/admin/reset-leaderboard`
 
+## Admin Reset (without initData copy)
+
+Local terminal reset command:
+
+```bash
+npm run admin:reset-leaderboard
+```
+
+This resets `bestScore` to `0` for all users.
+
+Safety:
+- in `NODE_ENV=production` the script is blocked by default
+- to allow it explicitly set `ALLOW_PROD_LEADERBOARD_RESET=true`
+
 ## Manual Verification Plan
 
 1. Browser dev mode (`VITE_DEV_MOCK_TELEGRAM=true`, outside Telegram):

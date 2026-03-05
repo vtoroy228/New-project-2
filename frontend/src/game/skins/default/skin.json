@@ -1,7 +1,7 @@
 {
   "physics": {
     "gravity": 1950,
-    "jumpVelocity": 770,
+    "jumpVelocity": 740,
     "initialSpeed": 320,
     "speedAcceleration": 14,
     "minObstacleGap": 210,
