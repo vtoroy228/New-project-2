@@ -77,6 +77,7 @@ docker run -p 3000:3000 --env-file .env telegram-dino
 - Guest/mock mode works only outside Telegram and only if `VITE_DEV_MOCK_TELEGRAM=true`.
 - If Telegram WebApp exists but `initData` is empty, app shows explicit error and does not fallback to guest.
 - `TELEGRAM_AUTH_MAX_AGE_SECONDS` (default `300`) limits how old `auth_date` can be.
+- `TELEGRAM_VERIFY_CACHE_TTL_MS` and `TELEGRAM_VERIFY_CACHE_MAX_ENTRIES` control auth verify cache.
 
 ## Cloudflared (when ngrok unavailable)
 
@@ -116,11 +117,15 @@ cloudflared tunnel --url http://localhost:5173
 - `POST /api/admin/ban-user`
 - `POST /api/admin/unban-user`
 - `POST /api/admin/reset-leaderboard`
+- `GET /healthz`
+- `GET /readyz`
 
 ## Backend Resilience Notes
 
 - In-memory per-IP rate limits are enabled for auth/game/leaderboard/admin routes.
 - `POST /api/game/result` is idempotent by `(userId, sessionId)`.
+- Global leaderboard top/total is cached in-memory (`LEADERBOARD_CACHE_TTL_MS`).
+- Graceful shutdown + readiness/liveness probes are enabled.
   - Apply DB schema update before use:
 
 ```bash
@@ -155,7 +160,7 @@ Safety:
    - jump plays sound (`jump.mp3`) when volume > 0
    - game over triggers haptic when vibration enabled
    - new local high score shows confetti + `fireworks.mp3` + success haptic
-   - background music has separate toggle button (`♫`), default music loudness = 75% of SFX volume
+   - background music has separate toggle button (`♫`), default music loudness = 50% of SFX volume
 4. Layout checks:
    - TIME / SCORE / HI always in one row on narrow screen
    - canvas uses max available area (no large empty block)

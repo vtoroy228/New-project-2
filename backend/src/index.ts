@@ -20,6 +20,31 @@ const app = fastify({
   maxParamLength: 200
 });
 
+let shuttingDown = false;
+
+app.get('/healthz', async () => {
+  return {
+    ok: true,
+    status: 'alive',
+    uptimeSeconds: Math.floor(process.uptime())
+  };
+});
+
+app.get('/readyz', async (request, reply) => {
+  if (shuttingDown) {
+    reply.code(503).send({ ok: false, status: 'shutting_down' });
+    return;
+  }
+
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    return { ok: true, status: 'ready' };
+  } catch (error) {
+    request.log.error(error, 'readiness check failed');
+    reply.code(503).send({ ok: false, status: 'db_unavailable' });
+  }
+});
+
 app.register(authRoutes, { prefix: '/api/auth' });
 app.register(gameRoutes, { prefix: '/api/game' });
 app.register(leaderboardRoutes, { prefix: '/api/leaderboard' });
@@ -62,5 +87,47 @@ const start = async (): Promise<void> => {
     process.exit(1);
   }
 };
+
+const shutdown = async (signal: NodeJS.Signals): Promise<void> => {
+  if (shuttingDown) {
+    return;
+  }
+
+  shuttingDown = true;
+  app.log.warn({ signal }, 'shutting down server');
+
+  const forceExitTimer = setTimeout(() => {
+    app.log.error('forced shutdown after timeout');
+    process.exit(1);
+  }, 10_000);
+
+  try {
+    await app.close();
+    clearTimeout(forceExitTimer);
+    process.exit(0);
+  } catch (error) {
+    clearTimeout(forceExitTimer);
+    app.log.error(error, 'graceful shutdown failed');
+    process.exit(1);
+  }
+};
+
+process.on('SIGTERM', () => {
+  void shutdown('SIGTERM');
+});
+
+process.on('SIGINT', () => {
+  void shutdown('SIGINT');
+});
+
+process.on('uncaughtException', (error) => {
+  app.log.error(error, 'uncaughtException');
+  void shutdown('SIGTERM');
+});
+
+process.on('unhandledRejection', (reason) => {
+  app.log.error({ reason }, 'unhandledRejection');
+  void shutdown('SIGTERM');
+});
 
 void start();

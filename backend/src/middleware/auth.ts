@@ -38,19 +38,38 @@ const upsertUser = async (telegramUser: {
   photo_url?: string;
   is_premium?: boolean;
 }): Promise<User> => {
-  return prisma.user.upsert({
-    where: {
-      telegramId: BigInt(telegramUser.id)
-    },
-    create: {
-      telegramId: BigInt(telegramUser.id),
-      username: telegramUser.username,
-      avatarUrl: telegramUser.photo_url,
-      firstName: telegramUser.first_name,
-      lastName: telegramUser.last_name,
-      isPremium: telegramUser.is_premium ?? false
-    },
-    update: {
+  const telegramId = BigInt(telegramUser.id);
+  const existing = await prisma.user.findUnique({
+    where: { telegramId }
+  });
+
+  if (!existing) {
+    return prisma.user.create({
+      data: {
+        telegramId,
+        username: telegramUser.username,
+        avatarUrl: telegramUser.photo_url,
+        firstName: telegramUser.first_name,
+        lastName: telegramUser.last_name,
+        isPremium: telegramUser.is_premium ?? false
+      }
+    });
+  }
+
+  const shouldUpdate =
+    existing.username !== (telegramUser.username ?? null) ||
+    existing.avatarUrl !== (telegramUser.photo_url ?? null) ||
+    existing.firstName !== telegramUser.first_name ||
+    existing.lastName !== (telegramUser.last_name ?? null) ||
+    existing.isPremium !== (telegramUser.is_premium ?? false);
+
+  if (!shouldUpdate) {
+    return existing;
+  }
+
+  return prisma.user.update({
+    where: { telegramId },
+    data: {
       username: telegramUser.username,
       avatarUrl: telegramUser.photo_url,
       firstName: telegramUser.first_name,

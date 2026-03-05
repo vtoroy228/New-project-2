@@ -25,6 +25,7 @@ model User {
   gameResults   GameResult[]
 
   @@index([bestScore])
+  @@index([isBanned, bestScore, updatedAt])
 }
 
 model GameResult {

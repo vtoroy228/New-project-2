@@ -1,4 +1,5 @@
 import { prisma } from '../db/prisma';
+import { invalidateGlobalLeaderboardCache } from './leaderboardService';
 
 export interface SubmitGameResultInput {
   score: number;
@@ -38,6 +39,7 @@ export const submitGameResult = async (
   const sessionId = payload.sessionId?.slice(0, 128);
 
   const suspicious = isSuspiciousScore(score, playTime, obstacles);
+  let leaderboardChanged = false;
 
   if (sessionId) {
     const duplicate = await prisma.gameResult.findFirst({
@@ -106,6 +108,8 @@ export const submitGameResult = async (
       }
     });
 
+    leaderboardChanged = score > user.bestScore;
+
     return updated.bestScore;
   }).catch(async (error: unknown) => {
     const knownRequestError = error as { code?: string };
@@ -122,6 +126,10 @@ export const submitGameResult = async (
 
   if (suspicious) {
     console.warn(`[anti-cheat] Suspicious result ignored for leaderboard. userId=${userId} score=${score}`);
+  }
+
+  if (leaderboardChanged) {
+    invalidateGlobalLeaderboardCache();
   }
 
   return {

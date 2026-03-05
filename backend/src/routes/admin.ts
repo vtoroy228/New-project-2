@@ -3,6 +3,7 @@ import { prisma } from '../db/prisma';
 import { adminMiddleware } from '../middleware/admin';
 import { withAuth } from '../middleware/auth';
 import { rateLimit } from '../middleware/rateLimit';
+import { invalidateGlobalLeaderboardCache } from '../services/leaderboardService';
 
 interface TelegramBody {
   telegramId: string;
@@ -45,6 +46,7 @@ export const adminRoutes: FastifyPluginAsync = async (fastify) => {
       where: { telegramId },
       data: { isBanned: true }
     });
+    invalidateGlobalLeaderboardCache();
 
     return { ok: true, userId: user.id };
   });
@@ -66,6 +68,7 @@ export const adminRoutes: FastifyPluginAsync = async (fastify) => {
       where: { telegramId },
       data: { isBanned: false }
     });
+    invalidateGlobalLeaderboardCache();
 
     return { ok: true, userId: user.id };
   });
@@ -76,6 +79,7 @@ export const adminRoutes: FastifyPluginAsync = async (fastify) => {
         bestScore: 0
       }
     });
+    invalidateGlobalLeaderboardCache();
 
     return { ok: true };
   });

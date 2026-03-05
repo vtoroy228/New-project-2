@@ -21,9 +21,29 @@ export interface GlobalLeaderboardResponse {
   totalPlayers: number;
 }
 
-export const getGlobalLeaderboard = async (
-  currentUserId?: string
-): Promise<GlobalLeaderboardResponse> => {
+interface GlobalTopSnapshot {
+  top: LeaderboardEntry[];
+  totalPlayers: number;
+  expiresAt: number;
+}
+
+let globalTopSnapshot: GlobalTopSnapshot | null = null;
+
+const getLeaderboardCacheTtlMs = (): number => {
+  const raw = Number.parseInt(process.env.LEADERBOARD_CACHE_TTL_MS ?? '3000', 10);
+  return Number.isFinite(raw) && raw > 0 ? raw : 3000;
+};
+
+export const invalidateGlobalLeaderboardCache = (): void => {
+  globalTopSnapshot = null;
+};
+
+const fetchGlobalTopSnapshot = async (): Promise<GlobalTopSnapshot> => {
+  const now = Date.now();
+  if (globalTopSnapshot && globalTopSnapshot.expiresAt > now) {
+    return globalTopSnapshot;
+  }
+
   const [totalPlayers, topUsers] = await Promise.all([
     prisma.user.count({
       where: {
@@ -54,6 +74,22 @@ export const getGlobalLeaderboard = async (
     avatarUrl: user.avatarUrl,
     score: user.bestScore
   }));
+
+  globalTopSnapshot = {
+    top,
+    totalPlayers,
+    expiresAt: now + getLeaderboardCacheTtlMs()
+  };
+
+  return globalTopSnapshot;
+};
+
+export const getGlobalLeaderboard = async (
+  currentUserId?: string
+): Promise<GlobalLeaderboardResponse> => {
+  const snapshot = await fetchGlobalTopSnapshot();
+  const top = snapshot.top;
+  const totalPlayers = snapshot.totalPlayers;
 
   let you: LeaderboardYou | null = null;
 

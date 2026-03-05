@@ -9,6 +9,45 @@ export interface TelegramInitDataUser {
   is_premium?: boolean;
 }
 
+interface VerifyCacheEntry {
+  user: TelegramInitDataUser;
+  expiresAt: number;
+}
+
+const verifyCache = new Map<string, VerifyCacheEntry>();
+
+const cacheKeyFromInitData = (initData: string): string => {
+  return crypto.createHash('sha256').update(initData).digest('hex');
+};
+
+const getVerifyCacheTtlMs = (): number => {
+  const raw = Number.parseInt(process.env.TELEGRAM_VERIFY_CACHE_TTL_MS ?? '30000', 10);
+  return Number.isFinite(raw) && raw > 0 ? raw : 30_000;
+};
+
+const getVerifyCacheMaxEntries = (): number => {
+  const raw = Number.parseInt(process.env.TELEGRAM_VERIFY_CACHE_MAX_ENTRIES ?? '5000', 10);
+  return Number.isFinite(raw) && raw > 0 ? raw : 5000;
+};
+
+const cleanupVerifyCache = (): void => {
+  const now = Date.now();
+  for (const [key, entry] of verifyCache.entries()) {
+    if (entry.expiresAt <= now) {
+      verifyCache.delete(key);
+    }
+  }
+
+  const maxEntries = getVerifyCacheMaxEntries();
+  while (verifyCache.size > maxEntries) {
+    const oldestKey = verifyCache.keys().next().value;
+    if (!oldestKey) {
+      break;
+    }
+    verifyCache.delete(oldestKey);
+  }
+};
+
 const parseBoolean = (value: string | undefined, fallback: boolean): boolean => {
   if (value === undefined) {
     return fallback;
@@ -117,6 +156,14 @@ export const verifyTelegramInitData = (
   initData: string,
   botToken: string
 ): TelegramInitDataUser | null => {
+  cleanupVerifyCache();
+
+  const cacheKey = cacheKeyFromInitData(initData);
+  const cached = verifyCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.user;
+  }
+
   const maxAuthAgeSeconds = Number.parseInt(process.env.TELEGRAM_AUTH_MAX_AGE_SECONDS ?? '300', 10);
   const authTtl = Number.isFinite(maxAuthAgeSeconds) && maxAuthAgeSeconds > 0 ? maxAuthAgeSeconds : 300;
 
@@ -178,7 +225,17 @@ export const verifyTelegramInitData = (
       continue;
     }
 
-    return parseUser(params.get('user'));
+    const user = parseUser(params.get('user'));
+    if (!user) {
+      continue;
+    }
+
+    verifyCache.set(cacheKey, {
+      user,
+      expiresAt: Date.now() + getVerifyCacheTtlMs()
+    });
+
+    return user;
   }
 
   return null;
