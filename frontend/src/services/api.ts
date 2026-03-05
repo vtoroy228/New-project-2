@@ -4,6 +4,7 @@ export interface ApiUser {
   id: string;
   telegramId: string;
   username: string | null;
+  avatarUrl: string | null;
   firstName: string;
   lastName: string | null;
   isPremium: boolean;
@@ -32,6 +33,7 @@ export interface LeaderboardEntry {
   telegramId: string;
   username: string | null;
   firstName: string;
+  lastName: string | null;
   avatarUrl: string | null;
   score: number;
 }

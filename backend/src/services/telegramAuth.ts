@@ -5,6 +5,7 @@ export interface TelegramInitDataUser {
   first_name: string;
   last_name?: string;
   username?: string;
+  photo_url?: string;
   is_premium?: boolean;
 }
 
@@ -33,9 +34,47 @@ export const buildDevMockUserFromEnv = (): TelegramInitDataUser => {
   };
 };
 
-const createDataCheckString = (params: URLSearchParams): string => {
+const createDataCheckString = (
+  params: URLSearchParams,
+  options?: { includeSignature?: boolean }
+): string => {
+  const includeSignature = options?.includeSignature ?? true;
+
   return [...params.entries()]
-    .filter(([key]) => key !== 'hash')
+    .filter(([key]) => key !== 'hash' && (includeSignature || key !== 'signature'))
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, value]) => `${key}=${value}`)
+    .join('\n');
+};
+
+const createDataCheckStringFromRaw = (
+  initData: string,
+  options?: { includeSignature?: boolean }
+): string => {
+  const includeSignature = options?.includeSignature ?? true;
+
+  const safeDecode = (value: string): string => {
+    try {
+      return decodeURIComponent(value.replace(/\+/g, '%20'));
+    } catch {
+      return value;
+    }
+  };
+
+  return initData
+    .split('&')
+    .map((part) => {
+      const separatorIndex = part.indexOf('=');
+      if (separatorIndex < 0) {
+        return [part, ''] as const;
+      }
+      return [part.slice(0, separatorIndex), part.slice(separatorIndex + 1)] as const;
+    })
+    .filter(([key]) => key !== 'hash' && (includeSignature || key !== 'signature'))
+    .map(([key, value]) => {
+      const normalizedValue = safeDecode(value);
+      return [key, normalizedValue] as const;
+    })
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([key, value]) => `${key}=${value}`)
     .join('\n');
@@ -66,6 +105,7 @@ const parseUser = (serializedUser: string | null): TelegramInitDataUser | null =
       first_name: parsed.first_name,
       last_name: parsed.last_name,
       username: parsed.username,
+      photo_url: parsed.photo_url,
       is_premium: parsed.is_premium ?? false
     };
   } catch {
@@ -77,33 +117,57 @@ export const verifyTelegramInitData = (
   initData: string,
   botToken: string
 ): TelegramInitDataUser | null => {
-  const params = new URLSearchParams(initData);
-  const hash = params.get('hash');
+  const safeDecode = (value: string): string => {
+    try {
+      return decodeURIComponent(value);
+    } catch {
+      return value;
+    }
+  };
 
-  if (!hash) {
-    return null;
+  const variants = Array.from(
+    new Set([
+      initData,
+      safeDecode(initData),
+      initData.replace(/ /g, '+'),
+      safeDecode(initData.replace(/ /g, '+'))
+    ])
+  );
+
+  const token = botToken.trim();
+  const secretKey = crypto.createHmac('sha256', 'WebAppData').update(token).digest();
+
+  for (const variant of variants) {
+    const params = new URLSearchParams(variant);
+    const hash = params.get('hash');
+
+    if (!hash) {
+      continue;
+    }
+
+    const authDate = Number.parseInt(params.get('auth_date') ?? '0', 10);
+    if (!Number.isFinite(authDate) || authDate <= 0) {
+      continue;
+    }
+
+    const candidates = [
+      createDataCheckString(params, { includeSignature: true }),
+      createDataCheckString(params, { includeSignature: false }),
+      createDataCheckStringFromRaw(variant, { includeSignature: true }),
+      createDataCheckStringFromRaw(variant, { includeSignature: false })
+    ];
+
+    const matched = candidates.some((candidate) => {
+      const candidateHash = crypto.createHmac('sha256', secretKey).update(candidate).digest('hex');
+      return secureCompareHex(candidateHash, hash);
+    });
+
+    if (!matched) {
+      continue;
+    }
+
+    return parseUser(params.get('user'));
   }
 
-  const authDate = Number.parseInt(params.get('auth_date') ?? '0', 10);
-  if (!Number.isFinite(authDate) || authDate <= 0) {
-    return null;
-  }
-
-  const dataCheckString = createDataCheckString(params);
-
-  const secretKey = crypto
-    .createHmac('sha256', 'WebAppData')
-    .update(botToken)
-    .digest();
-
-  const calculatedHash = crypto
-    .createHmac('sha256', secretKey)
-    .update(dataCheckString)
-    .digest('hex');
-
-  if (!secureCompareHex(calculatedHash, hash)) {
-    return null;
-  }
-
-  return parseUser(params.get('user'));
+  return null;
 };

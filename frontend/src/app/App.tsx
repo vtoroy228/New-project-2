@@ -4,7 +4,7 @@ import type { TabId } from './router';
 import { GameScreen } from '../screens/GameScreen';
 import { LeaderboardScreen } from '../screens/LeaderboardScreen';
 import { ProfileScreen } from '../screens/ProfileScreen';
-import { ApiError, validateAuth } from '../services/api';
+import { ApiError, getMe, validateAuth } from '../services/api';
 import type { ApiUser } from '../services/api';
 import { TabBar } from '../ui/components/TabBar';
 import { useTheme } from '../ui/theme/useTheme';
@@ -38,27 +38,48 @@ export const App = () => {
   const [authUser, setAuthUser] = useState<ApiUser | null>(null);
 
   useEffect(() => {
-    const bootstrap = bootstrapTelegram();
-    devLog('bootstrap auth mode', {
-      mode: bootstrap.mode,
-      isTelegramWebApp: bootstrap.isTelegramWebApp,
-      initDataLength: bootstrap.initData?.length ?? 0,
-      error: bootstrap.error
-    });
+    let cancelled = false;
+    const EMPTY_INITDATA_RETRIES = 20;
+    let emptyInitDataSeen = 0;
 
-    if (bootstrap.error === 'EMPTY_INIT_DATA') {
-      setAuthState('error');
-      setAuthError('Откройте приложение через кнопку бота (WebApp)');
-      return;
-    }
+    const syncAuth = async (): Promise<void> => {
+      while (!cancelled) {
+        const bootstrap = bootstrapTelegram();
+        devLog('bootstrap auth mode', {
+          mode: bootstrap.mode,
+          isTelegramWebApp: bootstrap.isTelegramWebApp,
+          initDataLength: bootstrap.initData?.length ?? 0,
+          error: bootstrap.error,
+          emptyInitDataSeen
+        });
 
-    if (bootstrap.mode === 'none') {
-      setAuthState('error');
-      setAuthError('Откройте приложение в Telegram или включите VITE_DEV_MOCK_TELEGRAM=true для dev.');
-      return;
-    }
+        if (bootstrap.error === 'EMPTY_INIT_DATA' && emptyInitDataSeen < EMPTY_INITDATA_RETRIES) {
+          emptyInitDataSeen += 1;
+          await new Promise<void>((resolve) => {
+            window.setTimeout(resolve, 150);
+          });
+          continue;
+        }
 
-    const syncAuth = async () => {
+        if (bootstrap.error === 'EMPTY_INIT_DATA') {
+          setAuthState('error');
+          setAuthError('Откройте приложение через кнопку бота (WebApp)');
+          return;
+        }
+
+        if (bootstrap.mode === 'none') {
+          setAuthState('error');
+          setAuthError('Откройте приложение в Telegram или включите VITE_DEV_MOCK_TELEGRAM=true для dev.');
+          return;
+        }
+
+        break;
+      }
+
+      if (cancelled) {
+        return;
+      }
+
       try {
         const response = await validateAuth();
         setAuthUser(response.user);
@@ -81,19 +102,72 @@ export const App = () => {
     };
 
     void syncAuth();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
+
+  useEffect(() => {
+    if (authState !== 'authorized') {
+      return;
+    }
+
+    let disposed = false;
+    const refreshUser = async () => {
+      try {
+        const response = await getMe();
+        if (!disposed) {
+          setAuthUser(response.user);
+        }
+      } catch {
+        // no-op for background refresh
+      }
+    };
+
+    const onFocus = () => {
+      void refreshUser();
+    };
+
+    const onVisibilityChange = () => {
+      if (!document.hidden) {
+        void refreshUser();
+      }
+    };
+
+    const intervalId = window.setInterval(() => {
+      void refreshUser();
+    }, 60000);
+
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+
+    return () => {
+      disposed = true;
+      window.clearInterval(intervalId);
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, [authState]);
 
   const fallbackUser = useMemo(() => getDisplayUser(), []);
 
-  const headerName = authUser
-    ? authUser.username
-      ? `@${authUser.username}`
-      : [authUser.firstName, authUser.lastName ?? ''].join(' ').trim()
-    : fallbackUser
-      ? fallbackUser.username
-        ? `@${fallbackUser.username}`
-        : [fallbackUser.firstName, fallbackUser.lastName ?? ''].join(' ').trim()
-      : 'Guest';
+  const fullNameFromAuth = authUser
+    ? [authUser.firstName, authUser.lastName ?? ''].join(' ').trim()
+    : '';
+
+  const fullNameFromFallback = fallbackUser
+    ? [fallbackUser.firstName, fallbackUser.lastName ?? ''].join(' ').trim()
+    : '';
+
+  const headerName = fullNameFromAuth
+    || fullNameFromFallback
+    || (authUser?.username ? `@${authUser.username}` : '')
+    || (fallbackUser?.username ? `@${fallbackUser.username}` : '')
+    || 'Guest';
+
+  const avatarUrl = authUser?.avatarUrl ?? fallbackUser?.photoUrl ?? null;
+  const avatarFallback = headerName.slice(0, 1).toUpperCase();
 
   if (authState === 'loading') {
     return (
@@ -134,7 +208,13 @@ export const App = () => {
         </button>
 
         <div className="header-user">
-          <span className="header-avatar">{headerName.slice(0, 1).toUpperCase()}</span>
+          <span className="header-avatar">
+            {avatarUrl ? (
+              <img className="header-avatar-image" src={avatarUrl} alt={headerName} />
+            ) : (
+              avatarFallback
+            )}
+          </span>
           <span className="header-name">{headerName}</span>
         </div>
 

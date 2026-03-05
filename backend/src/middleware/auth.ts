@@ -35,6 +35,7 @@ const upsertUser = async (telegramUser: {
   username?: string;
   first_name: string;
   last_name?: string;
+  photo_url?: string;
   is_premium?: boolean;
 }): Promise<User> => {
   return prisma.user.upsert({
@@ -44,12 +45,14 @@ const upsertUser = async (telegramUser: {
     create: {
       telegramId: BigInt(telegramUser.id),
       username: telegramUser.username,
+      avatarUrl: telegramUser.photo_url,
       firstName: telegramUser.first_name,
       lastName: telegramUser.last_name,
       isPremium: telegramUser.is_premium ?? false
     },
     update: {
       username: telegramUser.username,
+      avatarUrl: telegramUser.photo_url,
       firstName: telegramUser.first_name,
       lastName: telegramUser.last_name,
       isPremium: telegramUser.is_premium ?? false
@@ -101,7 +104,17 @@ export const withAuth = (options: AuthOptions = {}) => {
 
     if (!telegramUser) {
       if (isDev) {
+        const params = new URLSearchParams(initData);
         request.log.info({ authStatus: 'invalid_init_data' }, '[auth] rejected initData');
+        request.log.info(
+          {
+            hasSignature: params.has('signature'),
+            hasHash: params.has('hash'),
+            keysCount: [...params.keys()].length,
+            authDate: params.get('auth_date')
+          },
+          '[auth] initData metadata'
+        );
       }
       if (options.optional) {
         return;

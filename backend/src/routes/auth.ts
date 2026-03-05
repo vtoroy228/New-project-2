@@ -5,6 +5,7 @@ interface UserView {
   id: string;
   telegramId: bigint;
   username: string | null;
+  avatarUrl: string | null;
   firstName: string;
   lastName: string | null;
   isPremium: boolean;
@@ -22,6 +23,7 @@ const toSafeUser = (user: UserView) => {
     id: user.id,
     telegramId: user.telegramId.toString(),
     username: user.username,
+    avatarUrl: user.avatarUrl,
     firstName: user.firstName,
     lastName: user.lastName,
     isPremium: user.isPremium,

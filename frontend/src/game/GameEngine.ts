@@ -49,6 +49,7 @@ interface Actor {
 
 const WORLD_WIDTH = 500;
 const WORLD_HEIGHT = 300;
+const SPEED_LIMIT_FACTOR = 1.85;
 
 export const getDefaultSettings = (): GameEngineSettings => {
   return {
@@ -244,7 +245,8 @@ export class GameEngine {
     const physics = this.skin.manifest.physics;
 
     this.playTime = (performance.now() - this.startTimestamp) / 1000;
-    this.speed += physics.speedAcceleration * deltaSeconds;
+    const speedLimit = physics.initialSpeed * SPEED_LIMIT_FACTOR;
+    this.speed = Math.min(speedLimit, this.speed + physics.speedAcceleration * deltaSeconds);
 
     this.dino.velocityY += physics.gravity * deltaSeconds;
     this.dino.y += this.dino.velocityY * deltaSeconds;
@@ -295,21 +297,23 @@ export class GameEngine {
   private randomGap(category: ObstacleCategory): number {
     const { minObstacleGap, maxObstacleGap, initialSpeed } = this.skin.manifest.physics;
 
-    const speedFactor = Math.max(0, (this.speed - initialSpeed) / initialSpeed);
-    let min = minObstacleGap + speedFactor * 95;
-    let max = maxObstacleGap + speedFactor * 140;
+    const speedFactor = Math.max(0, this.speed / initialSpeed - 1);
+    const reactionGap = this.speed * (0.72 + speedFactor * 0.12);
+    let min = Math.max(minObstacleGap, reactionGap);
+    let max = Math.max(maxObstacleGap, min + 180 + speedFactor * 80);
 
     if (category === 'flying') {
-      min += 90;
-      max += 140;
+      min += 120;
+      max += 180;
     }
 
     if (this.spawnCooldown > 0) {
-      min += 70;
+      min += 110;
+      max += 130;
     }
 
     if (this.lastGapWasTight) {
-      min += 60;
+      min += 90;
     }
 
     if (max < min + 60) {
@@ -362,7 +366,7 @@ export class GameEngine {
     const selected = pool[Math.floor(Math.random() * pool.length)] ?? pool[0];
 
     if (selected.category === 'flying' || selected.category === 'high') {
-      this.spawnCooldown = 1;
+      this.spawnCooldown = 2;
     } else if (this.spawnCooldown > 0) {
       this.spawnCooldown -= 1;
     }

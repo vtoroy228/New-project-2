@@ -5,11 +5,16 @@ import { tokens } from '../ui/theme/tokens';
 import { Card } from '../ui/components/Card';
 
 const renderName = (entry: LeaderboardEntry): string => {
+  const fullName = [entry.firstName, entry.lastName ?? ''].join(' ').trim();
+  if (fullName.length > 0) {
+    return fullName;
+  }
+
   if (entry.username) {
     return `@${entry.username}`;
   }
 
-  return entry.firstName;
+  return 'Игрок';
 };
 
 export const LeaderboardScreen = () => {
@@ -57,7 +62,13 @@ export const LeaderboardScreen = () => {
           {(data?.top ?? []).map((entry) => (
             <div key={entry.telegramId} className="leaderboard-row">
               <span className="leaderboard-rank">#{entry.rank}</span>
-              <span className="leaderboard-avatar">{entry.firstName.slice(0, 1).toUpperCase()}</span>
+              <span className="leaderboard-avatar">
+                {entry.avatarUrl ? (
+                  <img className="leaderboard-avatar-image" src={entry.avatarUrl} alt={renderName(entry)} />
+                ) : (
+                  entry.firstName.slice(0, 1).toUpperCase()
+                )}
+              </span>
               <span className="leaderboard-name">{renderName(entry)}</span>
               <span className="leaderboard-score">{entry.score}</span>
             </div>

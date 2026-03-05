@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { submitGameResult } from '../services/api';
+import { getMe, submitGameResult } from '../services/api';
 import { GameEngine, getDefaultSettings } from '../game/GameEngine';
 import { soundManager } from '../game/SoundManager';
 import { DEFAULT_SKIN, loadSkin } from '../game/SkinLoader';
@@ -79,6 +79,7 @@ export const GameScreen = () => {
   const [score, setScore] = useState(0);
   const [playTime, setPlayTime] = useState(0);
   const [confettiVisible, setConfettiVisible] = useState(false);
+  const [serverBest, setServerBest] = useState(0);
   const [localBest, setLocalBest] = useState(() => {
     const parsed = Number.parseInt(localStorage.getItem(LOCAL_BEST_KEY) ?? '0', 10);
     return Number.isFinite(parsed) ? parsed : 0;
@@ -97,6 +98,31 @@ export const GameScreen = () => {
   useEffect(() => {
     localBestRef.current = localBest;
   }, [localBest]);
+
+  useEffect(() => {
+    let active = true;
+
+    const loadServerBest = async () => {
+      try {
+        const response = await getMe();
+        if (!active) {
+          return;
+        }
+
+        setServerBest(response.user.bestScore);
+      } catch (error) {
+        if (import.meta.env.DEV) {
+          console.info('[game] failed to load server profile', error);
+        }
+      }
+    };
+
+    void loadServerBest();
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     let disposed = false;
@@ -125,10 +151,12 @@ export const GameScreen = () => {
           const vibrationEnabled = settingsRef.current.vibrationEnabled;
           triggerGameOverHaptic(vibrationEnabled);
 
-          const isNewRecord = snapshot.score > localBestRef.current;
+          const previousBest = Math.max(localBestRef.current, serverBest);
+          const isNewRecord = snapshot.score > previousBest;
           if (isNewRecord) {
             localBestRef.current = snapshot.score;
             setLocalBest(snapshot.score);
+            setServerBest(snapshot.score);
             localStorage.setItem(LOCAL_BEST_KEY, String(snapshot.score));
           }
 
@@ -147,12 +175,16 @@ export const GameScreen = () => {
           }
 
           try {
-            await submitGameResult({
+            const response = await submitGameResult({
               score: snapshot.score,
               playTime: snapshot.playTime,
               obstacles: snapshot.obstacles,
               sessionId: createSessionId()
             });
+
+            if (response.scoreAccepted && snapshot.score > serverBest) {
+              setServerBest(snapshot.score);
+            }
           } catch (error) {
             if (import.meta.env.DEV) {
               console.info('[game] failed to submit result', error);
@@ -219,11 +251,13 @@ export const GameScreen = () => {
 
   const handleStart = () => {
     setConfettiVisible(false);
+    void soundManager.unlock();
     engineRef.current?.restart();
     setIsRunning(true);
   };
 
   const sliderValue = Math.round(settings.volume * 100);
+  const hiScore = Math.max(localBest, serverBest);
 
   return (
     <div className="screen-stack game-screen-stack">
@@ -239,7 +273,7 @@ export const GameScreen = () => {
           </div>
           <div className="metric-cell" role="listitem">
             <span className="metric-label">HI</span>
-            <strong className="metric-value">{localBest}</strong>
+            <strong className="metric-value">{hiScore}</strong>
           </div>
         </div>
       </Card>
@@ -281,6 +315,8 @@ export const GameScreen = () => {
               ...current,
               volume: nextPercent / 100
             }));
+            void soundManager.unlock();
+            soundManager.play('jump', { throttleMs: 80 });
           }}
         />
 

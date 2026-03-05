@@ -3,6 +3,7 @@ export interface DisplayTelegramUser {
   firstName: string;
   lastName?: string;
   username?: string;
+  photoUrl?: string;
 }
 
 export interface TelegramBootstrapState {
@@ -14,7 +15,6 @@ export interface TelegramBootstrapState {
 
 const DEV_MOCK_ENABLED = import.meta.env.VITE_DEV_MOCK_TELEGRAM === 'true';
 
-let bootstrapState: TelegramBootstrapState | null = null;
 let telegramReadyCalled = false;
 
 const devLog = (message: string, details?: Record<string, unknown>): void => {
@@ -35,10 +35,6 @@ export const getTelegramWebApp = (): TelegramWebApp | null => {
 };
 
 export const bootstrapTelegram = (): TelegramBootstrapState => {
-  if (bootstrapState) {
-    return bootstrapState;
-  }
-
   const webApp = getTelegramWebApp();
   const isTelegramWebApp = Boolean(webApp);
 
@@ -51,7 +47,7 @@ export const bootstrapTelegram = (): TelegramBootstrapState => {
   const initData = webApp?.initData?.trim() ?? '';
 
   if (isTelegramWebApp && initData.length > 0) {
-    bootstrapState = {
+    const state: TelegramBootstrapState = {
       isTelegramWebApp,
       mode: 'telegram',
       initData,
@@ -59,11 +55,11 @@ export const bootstrapTelegram = (): TelegramBootstrapState => {
     };
 
     devLog('telegram auth detected', { initDataLength: initData.length, mode: 'telegram' });
-    return bootstrapState;
+    return state;
   }
 
   if (isTelegramWebApp && initData.length === 0) {
-    bootstrapState = {
+    const state: TelegramBootstrapState = {
       isTelegramWebApp,
       mode: 'none',
       initData: null,
@@ -71,11 +67,11 @@ export const bootstrapTelegram = (): TelegramBootstrapState => {
     };
 
     devLog('telegram webapp without initData', { initDataLength: 0, mode: 'none' });
-    return bootstrapState;
+    return state;
   }
 
   if (DEV_MOCK_ENABLED) {
-    bootstrapState = {
+    const state: TelegramBootstrapState = {
       isTelegramWebApp,
       mode: 'mock',
       initData: 'dev-mock',
@@ -83,10 +79,10 @@ export const bootstrapTelegram = (): TelegramBootstrapState => {
     };
 
     devLog('dev mock mode enabled', { mode: 'mock' });
-    return bootstrapState;
+    return state;
   }
 
-  bootstrapState = {
+  const state: TelegramBootstrapState = {
     isTelegramWebApp,
     mode: 'none',
     initData: null,
@@ -94,7 +90,7 @@ export const bootstrapTelegram = (): TelegramBootstrapState => {
   };
 
   devLog('telegram auth unavailable', { mode: 'none' });
-  return bootstrapState;
+  return state;
 };
 
 export const getTelegramInitData = (): string | null => {
@@ -115,7 +111,8 @@ export const getDisplayUser = (): DisplayTelegramUser | null => {
       id: String(telegramUser.id),
       firstName: telegramUser.first_name,
       lastName: telegramUser.last_name,
-      username: telegramUser.username
+      username: telegramUser.username,
+      photoUrl: telegramUser.photo_url
     };
   }
 

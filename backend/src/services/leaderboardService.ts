@@ -5,6 +5,7 @@ export interface LeaderboardEntry {
   telegramId: string;
   username: string | null;
   firstName: string;
+  lastName: string | null;
   avatarUrl: string | null;
   score: number;
 }
@@ -37,7 +38,8 @@ export const getGlobalLeaderboard = async (
     telegramId: user.telegramId.toString(),
     username: user.username,
     firstName: user.firstName,
-    avatarUrl: null,
+    lastName: user.lastName,
+    avatarUrl: user.avatarUrl,
     score: user.bestScore
   }));
 
