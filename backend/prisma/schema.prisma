@@ -1,0 +1,41 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String       @id @default(cuid())
+  telegramId    BigInt       @unique
+  username      String?
+  firstName     String
+  lastName      String?
+  isPremium     Boolean      @default(false)
+  isBanned      Boolean      @default(false)
+  bestScore     Int          @default(0)
+  totalGames    Int          @default(0)
+  totalScore    BigInt       @default(0)
+  totalPlayTime Int          @default(0)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  gameResults   GameResult[]
+
+  @@index([bestScore])
+}
+
+model GameResult {
+  id         String   @id @default(cuid())
+  userId     String
+  score      Int
+  playTime   Int
+  obstacles  Int
+  sessionId  String?
+  createdAt  DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([createdAt])
+}

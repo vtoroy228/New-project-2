@@ -1,0 +1,51 @@
+{
+  "physics": {
+    "gravity": 1950,
+    "jumpVelocity": 770,
+    "initialSpeed": 320,
+    "speedAcceleration": 14,
+    "minObstacleGap": 210,
+    "maxObstacleGap": 410,
+    "scorePerSecond": 12,
+    "scorePerObstacle": 45,
+    "groundOffset": 40
+  },
+  "dino": {
+    "sprite": "dino.svg",
+    "width": 54,
+    "height": 58,
+    "hitbox": {
+      "x": 8,
+      "y": 8,
+      "width": 36,
+      "height": 42
+    }
+  },
+  "obstacles": [
+    {
+      "id": "cactus",
+      "sprite": "cactus.svg",
+      "width": 32,
+      "height": 58,
+      "hitbox": {
+        "x": 4,
+        "y": 8,
+        "width": 24,
+        "height": 46
+      }
+    },
+    {
+      "id": "drone",
+      "sprite": "drone.svg",
+      "width": 50,
+      "height": 32,
+      "hitbox": {
+        "x": 5,
+        "y": 4,
+        "width": 40,
+        "height": 22
+      },
+      "yOffset": 66
+    }
+  ]
+}
