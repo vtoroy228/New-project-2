@@ -28,6 +28,9 @@
       "sprite": "cactus.svg",
       "width": 32,
       "height": 58,
+      "minGap": 150,
+      "minSpeed": 280,
+      "multipleSpeed": 540,
       "hitbox": {
         "x": 4,
         "y": 8,
@@ -41,6 +44,9 @@
       "sprite": "rock.svg",
       "width": 42,
       "height": 26,
+      "minGap": 190,
+      "minSpeed": 240,
+      "multipleSpeed": 460,
       "hitbox": {
         "x": 4,
         "y": 5,
@@ -54,6 +60,9 @@
       "sprite": "drone.svg",
       "width": 50,
       "height": 32,
+      "minGap": 220,
+      "minSpeed": 340,
+      "multipleSpeed": 9999,
       "hitbox": {
         "x": 5,
         "y": 4,

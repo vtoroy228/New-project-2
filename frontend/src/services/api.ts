@@ -144,7 +144,7 @@ export const getMe = async (): Promise<AuthResponse> => {
 };
 
 export const submitGameResult = async (payload: GameResultPayload) => {
-  return request<{ ok: boolean; suspicious: boolean; scoreAccepted: boolean }>('/game/result', {
+  return request<{ ok: boolean; suspicious: boolean; scoreAccepted: boolean; userBestScore: number }>('/game/result', {
     method: 'POST',
     auth: 'required',
     body: payload

@@ -100,6 +100,8 @@ cloudflared tunnel --url http://localhost:5173
 - Sound placeholders:
   - `frontend/public/assets/sounds/jump.mp3`
   - `frontend/public/assets/sounds/fireworks.mp3`
+  - `frontend/public/assets/sounds/bgm.mp3`
+  - replace these files with your own audio files (keep same names/paths)
 - Skin config and sprites:
   - `frontend/src/game/skins/default/skin.json`
   - `frontend/src/game/skins/default/*.svg`
@@ -128,6 +130,7 @@ cloudflared tunnel --url http://localhost:5173
    - jump plays sound (`jump.mp3`) when volume > 0
    - game over triggers haptic when vibration enabled
    - new local high score shows confetti + `fireworks.mp3` + success haptic
+   - background music has separate toggle button (`♫`), default music loudness = 75% of SFX volume
 4. Layout checks:
    - TIME / SCORE / HI always in one row on narrow screen
    - canvas uses max available area (no large empty block)

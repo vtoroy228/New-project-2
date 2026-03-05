@@ -10,6 +10,7 @@ export interface SubmitGameResultInput {
 export interface SubmitGameResultOutput {
   suspicious: boolean;
   scoreAccepted: boolean;
+  userBestScore: number;
 }
 
 const clampInt = (value: number): number => {
@@ -38,7 +39,7 @@ export const submitGameResult = async (
 
   const suspicious = isSuspiciousScore(score, playTime, obstacles);
 
-  await prisma.$transaction(async (tx) => {
+  const userBestScore = await prisma.$transaction(async (tx) => {
     const user = await tx.user.findUniqueOrThrow({ where: { id: userId } });
 
     await tx.gameResult.create({
@@ -52,7 +53,7 @@ export const submitGameResult = async (
     });
 
     if (suspicious) {
-      await tx.user.update({
+      const updated = await tx.user.update({
         where: { id: userId },
         data: {
           totalGames: {
@@ -64,10 +65,10 @@ export const submitGameResult = async (
         }
       });
 
-      return;
+      return updated.bestScore;
     }
 
-    await tx.user.update({
+    const updated = await tx.user.update({
       where: { id: userId },
       data: {
         totalGames: {
@@ -82,6 +83,8 @@ export const submitGameResult = async (
         bestScore: Math.max(user.bestScore, score)
       }
     });
+
+    return updated.bestScore;
   });
 
   if (suspicious) {
@@ -90,6 +93,7 @@ export const submitGameResult = async (
 
   return {
     suspicious,
-    scoreAccepted: !suspicious
+    scoreAccepted: !suspicious,
+    userBestScore
   };
 };

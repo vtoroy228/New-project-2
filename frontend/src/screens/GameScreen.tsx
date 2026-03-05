@@ -14,11 +14,13 @@ import { Toggle } from '../ui/components/Toggle';
 
 const VOLUME_KEY = 'dino.volume';
 const VIBRATION_KEY = 'dino.vibration';
+const MUSIC_ENABLED_KEY = 'dino.musicEnabled';
 const LOCAL_BEST_KEY = 'dino.localBest';
 
 interface SettingsState {
   volume: number;
   vibrationEnabled: boolean;
+  musicEnabled: boolean;
 }
 
 const clamp = (value: number, min: number, max: number): number => {
@@ -47,7 +49,8 @@ const loadSettings = (): SettingsState => {
 
   return {
     volume: clamp(Number.isFinite(volumeRaw) ? volumeRaw : defaults.volume, 0, 1),
-    vibrationEnabled: parseBoolean(localStorage.getItem(VIBRATION_KEY), defaults.vibrationEnabled)
+    vibrationEnabled: parseBoolean(localStorage.getItem(VIBRATION_KEY), defaults.vibrationEnabled),
+    musicEnabled: parseBoolean(localStorage.getItem(MUSIC_ENABLED_KEY), true)
   };
 };
 
@@ -86,18 +89,36 @@ export const GameScreen = () => {
   });
   const [settings, setSettings] = useState<SettingsState>(() => loadSettings());
   const localBestRef = useRef(localBest);
+  const serverBestRef = useRef(serverBest);
+  const [hasServerBest, setHasServerBest] = useState(false);
+  const hasServerBestRef = useRef(hasServerBest);
 
   useEffect(() => {
     settingsRef.current = settings;
     localStorage.setItem(VOLUME_KEY, settings.volume.toFixed(2));
     localStorage.setItem(VIBRATION_KEY, String(settings.vibrationEnabled));
+    localStorage.setItem(MUSIC_ENABLED_KEY, String(settings.musicEnabled));
     engineRef.current?.setSettings(settings);
     soundManager.setVolume(settings.volume);
+    soundManager.setMusicEnabled(settings.musicEnabled);
+    if (settings.musicEnabled) {
+      void soundManager.startMusic();
+    } else {
+      soundManager.stopMusic();
+    }
   }, [settings]);
 
   useEffect(() => {
     localBestRef.current = localBest;
   }, [localBest]);
+
+  useEffect(() => {
+    serverBestRef.current = serverBest;
+  }, [serverBest]);
+
+  useEffect(() => {
+    hasServerBestRef.current = hasServerBest;
+  }, [hasServerBest]);
 
   useEffect(() => {
     let active = true;
@@ -110,6 +131,7 @@ export const GameScreen = () => {
         }
 
         setServerBest(response.user.bestScore);
+        setHasServerBest(true);
       } catch (error) {
         if (import.meta.env.DEV) {
           console.info('[game] failed to load server profile', error);
@@ -151,12 +173,13 @@ export const GameScreen = () => {
           const vibrationEnabled = settingsRef.current.vibrationEnabled;
           triggerGameOverHaptic(vibrationEnabled);
 
-          const previousBest = Math.max(localBestRef.current, serverBest);
+          const previousBest = hasServerBestRef.current
+            ? serverBestRef.current
+            : Math.max(localBestRef.current, serverBestRef.current);
           const isNewRecord = snapshot.score > previousBest;
           if (isNewRecord) {
             localBestRef.current = snapshot.score;
             setLocalBest(snapshot.score);
-            setServerBest(snapshot.score);
             localStorage.setItem(LOCAL_BEST_KEY, String(snapshot.score));
           }
 
@@ -182,8 +205,9 @@ export const GameScreen = () => {
               sessionId: createSessionId()
             });
 
-            if (response.scoreAccepted && snapshot.score > serverBest) {
-              setServerBest(snapshot.score);
+            if (response.scoreAccepted) {
+              setHasServerBest(true);
+              setServerBest((current) => Math.max(current, response.userBestScore));
             }
           } catch (error) {
             if (import.meta.env.DEV) {
@@ -251,13 +275,17 @@ export const GameScreen = () => {
 
   const handleStart = () => {
     setConfettiVisible(false);
-    void soundManager.unlock();
+    void soundManager.unlock().then(() => {
+      if (settingsRef.current.musicEnabled) {
+        void soundManager.startMusic();
+      }
+    });
     engineRef.current?.restart();
     setIsRunning(true);
   };
 
   const sliderValue = Math.round(settings.volume * 100);
-  const hiScore = Math.max(localBest, serverBest);
+  const hiScore = hasServerBest ? serverBest : Math.max(localBest, serverBest);
 
   return (
     <div className="screen-stack game-screen-stack">
@@ -288,6 +316,28 @@ export const GameScreen = () => {
               {startLabel}
             </button>
           ) : null}
+
+          <button
+            type="button"
+            className={`music-fab ${settings.musicEnabled ? 'music-fab-on' : ''}`}
+            onClick={() => {
+              setSettings((current) => {
+                const next = !current.musicEnabled;
+                if (next) {
+                  void soundManager.unlock().then(() => soundManager.startMusic());
+                } else {
+                  soundManager.stopMusic();
+                }
+                return {
+                  ...current,
+                  musicEnabled: next
+                };
+              });
+            }}
+            aria-label={settings.musicEnabled ? 'Disable music' : 'Enable music'}
+          >
+            {settings.musicEnabled ? '♫' : '♫×'}
+          </button>
 
           <button
             type="button"
@@ -324,6 +374,12 @@ export const GameScreen = () => {
           label="вибрация"
           checked={settings.vibrationEnabled}
           onChange={(nextValue) => setSettings((current) => ({ ...current, vibrationEnabled: nextValue }))}
+        />
+
+        <Toggle
+          label="фоновая музыка"
+          checked={settings.musicEnabled}
+          onChange={(nextValue) => setSettings((current) => ({ ...current, musicEnabled: nextValue }))}
         />
 
         <Button fullWidth onClick={() => setSettingsOpen(false)}>

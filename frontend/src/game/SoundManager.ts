@@ -1,8 +1,9 @@
-type SoundName = 'jump' | 'fireworks';
+type SoundName = 'jump' | 'fireworks' | 'bgm';
 
 const SOUND_SOURCES: Record<SoundName, string> = {
   jump: '/assets/sounds/jump.mp3',
-  fireworks: '/assets/sounds/fireworks.mp3'
+  fireworks: '/assets/sounds/fireworks.mp3',
+  bgm: '/assets/sounds/bgm.mp3'
 };
 
 const clampVolume = (value: number): number => {
@@ -84,7 +85,13 @@ export class SoundManager {
   private buffers: Partial<Record<SoundName, AudioBuffer | null>> = {};
   private loadingPromise: Promise<void> | null = null;
   private lastPlayedAt: Partial<Record<SoundName, number>> = {};
-  private volume = 0.7;
+  private sfxVolume = 0.7;
+  private musicEnabled = true;
+  private musicRatio = 0.5;
+  private bgmSource: AudioBufferSourceNode | null = null;
+  private bgmOscillator: OscillatorNode | null = null;
+  private bgmGain: GainNode | null = null;
+  private bgmActive = false;
 
   static getInstance(): SoundManager {
     if (!SoundManager.instance) {
@@ -149,18 +156,44 @@ export class SoundManager {
     }
 
     await this.ensureBuffersLoaded();
+    this.applyMusicState();
   }
 
   setVolume(nextVolume: number): void {
-    this.volume = clampVolume(nextVolume);
+    this.sfxVolume = clampVolume(nextVolume);
+    this.applyMusicState();
   }
 
   getVolume(): number {
-    return this.volume;
+    return this.sfxVolume;
+  }
+
+  setMusicEnabled(nextEnabled: boolean): void {
+    this.musicEnabled = nextEnabled;
+    this.applyMusicState();
+  }
+
+  getMusicEnabled(): boolean {
+    return this.musicEnabled;
+  }
+
+  async startMusic(): Promise<void> {
+    this.bgmActive = true;
+    await this.applyMusicState();
+  }
+
+  stopMusic(): void {
+    this.bgmActive = false;
+    this.stopMusicNodes();
   }
 
   play(name: SoundName, options?: { throttleMs?: number }): void {
-    if (this.volume <= 0) {
+    if (name === 'bgm') {
+      void this.startMusic();
+      return;
+    }
+
+    if (this.sfxVolume <= 0) {
       return;
     }
 
@@ -197,7 +230,7 @@ export class SoundManager {
     if (buffer) {
       const source = context.createBufferSource();
       const gain = context.createGain();
-      gain.gain.value = this.volume;
+      gain.gain.value = this.sfxVolume;
 
       source.buffer = buffer;
       source.connect(gain);
@@ -206,7 +239,97 @@ export class SoundManager {
       return;
     }
 
-    createFallbackSynth(context, name, this.volume);
+    createFallbackSynth(context, name, this.sfxVolume);
+  }
+
+  private ensureMusicGain(context: AudioContext): GainNode {
+    if (this.bgmGain) {
+      return this.bgmGain;
+    }
+
+    const gain = context.createGain();
+    gain.gain.value = 0;
+    gain.connect(context.destination);
+    this.bgmGain = gain;
+    return gain;
+  }
+
+  private stopMusicNodes(): void {
+    if (this.bgmSource) {
+      try {
+        this.bgmSource.stop();
+      } catch {
+        // no-op
+      }
+      this.bgmSource.disconnect();
+      this.bgmSource = null;
+    }
+
+    if (this.bgmOscillator) {
+      try {
+        this.bgmOscillator.stop();
+      } catch {
+        // no-op
+      }
+      this.bgmOscillator.disconnect();
+      this.bgmOscillator = null;
+    }
+  }
+
+  private async applyMusicState(): Promise<void> {
+    const context = this.ensureContext();
+    if (!context) {
+      return;
+    }
+
+    if (context.state === 'suspended') {
+      try {
+        await context.resume();
+      } catch {
+        return;
+      }
+    }
+
+    await this.ensureBuffersLoaded();
+
+    const gain = this.ensureMusicGain(context);
+    const targetVolume =
+      this.bgmActive && this.musicEnabled ? clampVolume(this.sfxVolume * this.musicRatio) : 0;
+    gain.gain.value = targetVolume;
+
+    if (!this.bgmActive || !this.musicEnabled) {
+      this.stopMusicNodes();
+      return;
+    }
+
+    if (this.bgmSource || this.bgmOscillator) {
+      return;
+    }
+
+    const buffer = this.buffers.bgm;
+    if (buffer) {
+      const source = context.createBufferSource();
+      source.buffer = buffer;
+      source.loop = true;
+      source.connect(gain);
+      source.onended = () => {
+        this.bgmSource = null;
+        if (this.bgmActive && this.musicEnabled) {
+          void this.applyMusicState();
+        }
+      };
+      source.start(0);
+      this.bgmSource = source;
+      return;
+    }
+
+    // Placeholder fallback so background music channel still works before replacing bgm.mp3.
+    const oscillator = context.createOscillator();
+    oscillator.type = 'triangle';
+    oscillator.frequency.setValueAtTime(170, context.currentTime);
+    oscillator.connect(gain);
+    oscillator.start();
+    this.bgmOscillator = oscillator;
   }
 }
 

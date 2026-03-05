@@ -49,7 +49,8 @@ interface Actor {
 
 const WORLD_WIDTH = 500;
 const WORLD_HEIGHT = 300;
-const SPEED_LIMIT_FACTOR = 1.85;
+const SPEED_LIMIT_FACTOR = 2.2;
+const MIN_INTER_OBSTACLE_GAP = 58;
 
 export const getDefaultSettings = (): GameEngineSettings => {
   return {
@@ -76,8 +77,13 @@ export class GameEngine {
   private startTimestamp = 0;
   private lastTimestamp = 0;
   private nextSpawnDistance = 0;
+  private pendingCluster = 0;
+  private pendingClusterTypeId: string | null = null;
   private lastSpawnCategory: ObstacleCategory | null = null;
+  private lastSpawnTypeId: string | null = null;
+  private obstacleHistory: string[] = [];
   private lastGapWasTight = false;
+  private tightGapStreak = 0;
   private spawnCooldown = 0;
   private rafId = 0;
 
@@ -192,9 +198,14 @@ export class GameEngine {
     this.playTime = 0;
     this.obstacles = [];
     this.lastSpawnCategory = null;
+    this.lastSpawnTypeId = null;
+    this.obstacleHistory = [];
     this.lastGapWasTight = false;
+    this.tightGapStreak = 0;
+    this.pendingCluster = 0;
+    this.pendingClusterTypeId = null;
     this.spawnCooldown = 0;
-    this.nextSpawnDistance = this.randomGap('low');
+    this.nextSpawnDistance = this.skin.manifest.physics.minObstacleGap * 1.35;
     this.dino.velocityY = 0;
     this.dino.y = this.groundY - this.dino.height;
 
@@ -256,19 +267,22 @@ export class GameEngine {
       this.dino.velocityY = 0;
     }
 
-    this.nextSpawnDistance -= this.speed * deltaSeconds;
-    if (this.nextSpawnDistance <= 0) {
-      const type = this.pickObstacleType();
-      this.spawnObstacle(type);
-      this.nextSpawnDistance = this.randomGap(type.category);
-    }
-
     this.obstacles = this.obstacles
       .map((obstacle) => ({
         ...obstacle,
         x: obstacle.x - this.speed * deltaSeconds
       }))
       .filter((obstacle) => obstacle.x + obstacle.width > -30);
+
+    this.nextSpawnDistance -= this.speed * deltaSeconds;
+    while (this.nextSpawnDistance <= 0) {
+      const type = this.pickObstacleType();
+      this.spawnObstacle(type);
+      this.nextSpawnDistance +=
+        this.pendingCluster > 0 && this.pendingClusterTypeId === type.id
+          ? this.getClusterGap(type)
+          : this.computeSpawnGap(type);
+    }
 
     for (const obstacle of this.obstacles) {
       if (!obstacle.passed && obstacle.x + obstacle.width < this.dino.x) {
@@ -294,43 +308,51 @@ export class GameEngine {
     });
   }
 
-  private randomGap(category: ObstacleCategory): number {
+  private computeSpawnGap(type: SkinObstacle): number {
     const { minObstacleGap, maxObstacleGap, initialSpeed } = this.skin.manifest.physics;
 
-    const speedFactor = Math.max(0, this.speed / initialSpeed - 1);
-    const reactionGap = this.speed * (0.72 + speedFactor * 0.12);
-    let min = Math.max(minObstacleGap, reactionGap);
-    let max = Math.max(maxObstacleGap, min + 180 + speedFactor * 80);
+    const speedCoefficient = Math.max(1, this.speed / initialSpeed);
+    const tunedMinGap = Math.max(minObstacleGap, type.minGap ?? minObstacleGap);
+    const tunedMaxGap = Math.max(maxObstacleGap, tunedMinGap + 60);
 
-    if (category === 'flying') {
-      min += 120;
-      max += 180;
+    const min = tunedMinGap * speedCoefficient;
+    const max = tunedMaxGap * speedCoefficient;
+    let gap = min + Math.random() * (max - min);
+
+    // Chromium-like pace: obstacle width and speed both increase reaction gap.
+    gap += type.width * (0.85 + speedCoefficient * 0.3);
+
+    if (type.category === 'flying') {
+      gap += 94;
     }
 
-    if (this.spawnCooldown > 0) {
-      min += 110;
-      max += 130;
+    if (this.lastSpawnCategory === 'flying' || this.lastSpawnCategory === 'high') {
+      gap += 56;
     }
 
     if (this.lastGapWasTight) {
-      min += 90;
+      gap += 24 + this.tightGapStreak * 16;
     }
 
-    if (max < min + 60) {
-      max = min + 60;
-    }
-
-    const gap = min + Math.random() * (max - min);
-    this.lastGapWasTight = gap < min + 48;
-    return gap;
+    this.lastGapWasTight = gap < min + 45;
+    this.tightGapStreak = this.lastGapWasTight ? Math.min(3, this.tightGapStreak + 1) : 0;
+    return Math.max(MIN_INTER_OBSTACLE_GAP, gap);
   }
 
   private pickObstacleType(): SkinObstacle {
+    const clusterObstacle = this.pickClusterObstacle();
+    if (clusterObstacle) {
+      return clusterObstacle;
+    }
+
     const obstacles = this.skin.manifest.obstacles;
     const initialSpeed = this.skin.manifest.physics.initialSpeed;
-    const isFast = this.speed > initialSpeed * 1.15;
 
     let candidates = obstacles.filter((obstacle) => {
+      if (obstacle.minSpeed !== undefined && this.speed < obstacle.minSpeed) {
+        return false;
+      }
+
       if (obstacle.category === 'flying' && (obstacle.yOffset ?? 0) < 56) {
         return false;
       }
@@ -339,7 +361,19 @@ export class GameEngine {
         return false;
       }
 
-      if (isFast && this.lastSpawnCategory === 'flying' && obstacle.category === 'flying') {
+      if (this.speed < initialSpeed * 1.08 && obstacle.category === 'flying') {
+        return false;
+      }
+
+      if (this.lastSpawnCategory === 'flying' && obstacle.category === 'flying') {
+        return false;
+      }
+
+      if (this.lastSpawnCategory === 'high' && obstacle.category === 'high') {
+        return false;
+      }
+
+      if (this.isDuplicateObstacle(obstacle.id)) {
         return false;
       }
 
@@ -352,11 +386,11 @@ export class GameEngine {
 
     const weighted = candidates.flatMap((obstacle) => {
       if (obstacle.category === 'low') {
-        return [obstacle, obstacle];
+        return [obstacle, obstacle, obstacle];
       }
 
       if (obstacle.category === 'flying') {
-        return this.speed > initialSpeed * 1.05 ? [obstacle] : [];
+        return this.speed > initialSpeed * 1.12 ? [obstacle] : [];
       }
 
       return [obstacle];
@@ -372,8 +406,75 @@ export class GameEngine {
     }
 
     this.lastSpawnCategory = selected.category;
+    this.lastSpawnTypeId = selected.id;
+    this.obstacleHistory.unshift(selected.id);
+    if (this.obstacleHistory.length > 2) {
+      this.obstacleHistory.splice(2);
+    }
 
     return selected;
+  }
+
+  private createCluster(type: SkinObstacle): void {
+    if (type.category === 'flying') {
+      this.pendingCluster = 0;
+      this.pendingClusterTypeId = null;
+      return;
+    }
+
+    const clusterAllowed =
+      type.multipleSpeed !== undefined &&
+      this.speed >= type.multipleSpeed &&
+      this.lastSpawnCategory !== 'flying' &&
+      Math.random() > 0.62;
+
+    if (!clusterAllowed) {
+      this.pendingCluster = 0;
+      this.pendingClusterTypeId = null;
+      return;
+    }
+
+    this.pendingCluster = Math.random() > 0.6 ? 2 : 1;
+    this.pendingClusterTypeId = type.id;
+  }
+
+  private getClusterGap(type: SkinObstacle): number {
+    const speedCoefficient = Math.max(1, this.speed / this.skin.manifest.physics.initialSpeed);
+    const base = type.width * (0.42 + speedCoefficient * 0.12);
+    return Math.max(MIN_INTER_OBSTACLE_GAP, base + Math.random() * 28);
+  }
+
+  private pickClusterObstacle(): SkinObstacle | null {
+    if (this.pendingCluster <= 0 || !this.pendingClusterTypeId) {
+      return null;
+    }
+
+    const type =
+      this.skin.manifest.obstacles.find((obstacle) => obstacle.id === this.pendingClusterTypeId) ?? null;
+
+    if (!type) {
+      this.pendingCluster = 0;
+      this.pendingClusterTypeId = null;
+      return null;
+    }
+
+    this.pendingCluster -= 1;
+    if (this.pendingCluster <= 0) {
+      this.pendingClusterTypeId = null;
+    }
+
+    this.lastSpawnCategory = type.category;
+    this.lastSpawnTypeId = type.id;
+    return type;
+  }
+
+  private isDuplicateObstacle(nextId: string): boolean {
+    let duplicateCount = 0;
+    for (const obstacleId of this.obstacleHistory) {
+      duplicateCount = obstacleId === nextId ? duplicateCount + 1 : 0;
+    }
+
+    return duplicateCount >= 2;
   }
 
   private spawnObstacle(type: SkinObstacle): void {
@@ -390,6 +491,7 @@ export class GameEngine {
     };
 
     this.obstacles.push(obstacle);
+    this.createCluster(type);
   }
 
   private checkCollision(obstacle: ObstacleInstance): boolean {

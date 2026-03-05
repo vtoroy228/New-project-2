@@ -34,6 +34,9 @@ export interface SkinObstacle extends SkinEntity {
   id: string;
   category: ObstacleCategory;
   yOffset?: number;
+  minGap?: number;
+  minSpeed?: number;
+  multipleSpeed?: number;
 }
 
 export interface SkinManifest {

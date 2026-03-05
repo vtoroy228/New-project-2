@@ -258,6 +258,28 @@ input {
   z-index: 11;
 }
 
+.music-fab {
+  position: absolute;
+  right: var(--space-md);
+  top: var(--space-md);
+  min-width: 54px;
+  height: 54px;
+  border-radius: var(--radius-full);
+  border: 0;
+  background: var(--color-card);
+  box-shadow: var(--shadow-card);
+  color: var(--color-text-dark);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-bold);
+  padding: 0 var(--space-sm);
+  z-index: 11;
+}
+
+.music-fab-on {
+  background: var(--color-accent-magenta);
+  color: var(--color-card);
+}
+
 .confetti-layer {
   position: absolute;
   inset: 0;
