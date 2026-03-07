@@ -42,3 +42,43 @@ model GameResult {
   @@index([createdAt])
   @@unique([userId, sessionId])
 }
+
+model LeaderboardState {
+  id             String   @id @default("global")
+  epochStart     DateTime @default(now())
+  latestBackupId String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model LeaderboardBackup {
+  id                  String                 @id @default(cuid())
+  createdAt           DateTime               @default(now())
+  createdByTelegramId BigInt?
+  confirmationMaxScore Int?
+  maxScore            Int                    @default(0)
+  usersCount          Int                    @default(0)
+  previousEpochStart  DateTime
+  restoredAt          DateTime?
+  restoredByTelegramId BigInt?
+  entries             LeaderboardBackupEntry[]
+
+  @@index([createdAt])
+}
+
+model LeaderboardBackupEntry {
+  id         String            @id @default(cuid())
+  backupId   String
+  userId     String
+  telegramId BigInt
+  username   String?
+  avatarUrl  String?
+  firstName  String
+  lastName   String?
+  bestScore  Int
+  backup     LeaderboardBackup @relation(fields: [backupId], references: [id], onDelete: Cascade)
+
+  @@index([backupId])
+  @@index([userId])
+  @@unique([backupId, userId])
+}

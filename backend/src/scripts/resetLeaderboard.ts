@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import { prisma } from '../db/prisma';
+import { resetLeaderboardBestScores } from '../services/adminOperations';
 
 const isProd = process.env.NODE_ENV === 'production';
 const allowProdReset = process.env.ALLOW_PROD_LEADERBOARD_RESET === 'true';
@@ -11,13 +12,12 @@ const run = async (): Promise<void> => {
     );
   }
 
-  const result = await prisma.user.updateMany({
-    data: {
-      bestScore: 0
-    }
-  });
+  const result = await resetLeaderboardBestScores();
 
-  console.info(`[admin] leaderboard reset complete, affected users: ${result.count}`);
+  console.info(`[admin] leaderboard reset complete, affected users: ${result.affectedUsers}`);
+  console.info(
+    `[admin] backupId=${result.backupId} backupMaxScore=${result.backupMaxScore} backupUsers=${result.backupUsers} epochStart=${result.epochStart}`
+  );
 };
 
 void run()

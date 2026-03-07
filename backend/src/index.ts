@@ -9,12 +9,66 @@ import { authRoutes } from './routes/auth';
 import { gameRoutes } from './routes/game';
 import { leaderboardRoutes } from './routes/leaderboard';
 import { startBestScoreReconciler, stopBestScoreReconciler } from './services/bestScoreReconciler';
+import { startTelegramAdminBot, stopTelegramAdminBot } from './services/telegramAdminBot';
 
-dotenv.config({ path: path.resolve(process.cwd(), '.env') });
-dotenv.config({ path: path.resolve(process.cwd(), '../.env') });
+const envCandidates = [
+  path.resolve(__dirname, '../.env'),
+  path.resolve(process.cwd(), 'backend/.env'),
+  path.resolve(process.cwd(), '.env'),
+  path.resolve(process.cwd(), '../.env')
+];
+
+for (const envPath of envCandidates) {
+  if (existsSync(envPath)) {
+    dotenv.config({ path: envPath });
+  }
+}
+
+const parseBooleanEnv = (value: string | undefined, fallback: boolean): boolean => {
+  if (value === undefined) {
+    return fallback;
+  }
+  return value === 'true';
+};
+
+const logLevel = process.env.LOG_LEVEL ?? 'info';
+const prettyLogsEnabled = parseBooleanEnv(process.env.LOG_PRETTY, process.env.NODE_ENV !== 'production');
+const requestLogsEnabled = parseBooleanEnv(process.env.LOG_REQUESTS, true);
 
 const app = fastify({
-  logger: true,
+  logger: prettyLogsEnabled
+    ? {
+        level: logLevel,
+        serializers: {
+          req: (request) => {
+            return {
+              id: request.id,
+              method: request.method,
+              url: request.url,
+              host: request.hostname,
+              remoteAddress: request.ip
+            };
+          },
+          res: (reply) => {
+            return {
+              statusCode: reply.statusCode
+            };
+          }
+        },
+        transport: {
+          target: 'pino-pretty',
+          options: {
+            colorize: process.stdout.isTTY,
+            singleLine: true,
+            translateTime: 'yyyy-mm-dd HH:MM:ss.l',
+            ignore: 'pid,hostname'
+          }
+        }
+      }
+    : {
+        level: logLevel
+      },
+  disableRequestLogging: !requestLogsEnabled,
   bodyLimit: 256 * 1024,
   requestTimeout: 15_000,
   keepAliveTimeout: 60_000,
@@ -74,6 +128,7 @@ app.setNotFoundHandler(async (request, reply) => {
 
 app.addHook('onClose', async () => {
   stopBestScoreReconciler();
+  stopTelegramAdminBot();
   await prisma.$disconnect();
 });
 
@@ -84,6 +139,7 @@ const start = async (): Promise<void> => {
   try {
     await app.listen({ port, host });
     startBestScoreReconciler(app.log);
+    void startTelegramAdminBot(app.log);
     app.log.info(`Server started on http://${host}:${port}`);
   } catch (error) {
     app.log.error(error);

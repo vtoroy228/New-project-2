@@ -1,4 +1,5 @@
 import { prisma } from '../db/prisma';
+import { getLeaderboardEpochStart } from './adminOperations';
 import { invalidateGlobalLeaderboardCache } from './leaderboardService';
 
 interface Cursor {
@@ -37,29 +38,46 @@ const BOOT_LOOKBACK_MINUTES = parsePositiveInt(process.env.BEST_SCORE_RECONCILE_
 let timer: NodeJS.Timeout | null = null;
 let running = false;
 let cursor: Cursor | null = null;
+let cachedEpochStartMs: number | null = null;
 
-const getBaseWhere = () => {
+const getBaseWhere = (epochStart: Date) => {
+  if (cursor && cursor.createdAt < epochStart) {
+    cursor = null;
+  }
+
   if (cursor) {
     return {
-      OR: [
+      AND: [
         {
           createdAt: {
-            gt: cursor.createdAt
+            gte: epochStart
           }
         },
         {
-          createdAt: cursor.createdAt,
-          id: {
-            gt: cursor.id
-          }
+          OR: [
+            {
+              createdAt: {
+                gt: cursor.createdAt
+              }
+            },
+            {
+              createdAt: cursor.createdAt,
+              id: {
+                gt: cursor.id
+              }
+            }
+          ]
         }
       ]
     };
   }
 
+  const lookbackStart = new Date(Date.now() - BOOT_LOOKBACK_MINUTES * 60_000);
+  const startAt = lookbackStart > epochStart ? lookbackStart : epochStart;
+
   return {
     createdAt: {
-      gte: new Date(Date.now() - BOOT_LOOKBACK_MINUTES * 60_000)
+      gte: startAt
     }
   };
 };
@@ -73,11 +91,19 @@ const reconcileOnce = async (logger: ReconcilerLogger): Promise<void> => {
   running = true;
 
   try {
+    const epochStart = await getLeaderboardEpochStart();
+    const epochStartMs = epochStart.getTime();
+    if (cachedEpochStartMs === null || cachedEpochStartMs !== epochStartMs) {
+      cursor = null;
+      cachedEpochStartMs = epochStartMs;
+      logger.info({ epochStart: epochStart.toISOString() }, '[best-score-reconciler] epoch updated');
+    }
+
     let leaderboardChanged = false;
 
     while (true) {
       const batch = await prisma.gameResult.findMany({
-        where: getBaseWhere(),
+        where: getBaseWhere(epochStart),
         orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
         select: {
           id: true,
@@ -108,6 +134,9 @@ const reconcileOnce = async (logger: ReconcilerLogger): Promise<void> => {
       const maxScores = await prisma.gameResult.groupBy({
         by: ['userId'],
         where: {
+          createdAt: {
+            gte: epochStart
+          },
           userId: {
             in: userIds
           }

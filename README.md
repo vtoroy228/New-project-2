@@ -117,6 +117,7 @@ cloudflared tunnel --url http://localhost:5173
 - `POST /api/admin/ban-user`
 - `POST /api/admin/unban-user`
 - `POST /api/admin/reset-leaderboard`
+- `POST /api/admin/restore-leaderboard`
 - `GET /healthz`
 - `GET /readyz`
 
@@ -145,6 +146,46 @@ This resets `bestScore` to `0` for all users.
 Safety:
 - in `NODE_ENV=production` the script is blocked by default
 - to allow it explicitly set `ALLOW_PROD_LEADERBOARD_RESET=true`
+
+## Telegram Bot Admin Panel (Hidden)
+
+Backend can run an admin panel directly in Telegram bot chat (long polling).
+
+Env flags:
+
+```bash
+TELEGRAM_ADMIN_BOT_ENABLED=true
+ADMIN_TELEGRAM_IDS=123456789,987654321
+TELEGRAM_ADMIN_HIDDEN_COMMAND=/__admin
+TELEGRAM_ADMIN_BOT_AUTO_DELETE_WEBHOOK=true
+```
+
+How it works:
+- panel is available only in private chat and only for users from `ADMIN_TELEGRAM_IDS`
+- panel opens only after sending hidden command `TELEGRAM_ADMIN_HIDDEN_COMMAND`
+- on startup bot can auto-disable webhook (for polling mode) if `TELEGRAM_ADMIN_BOT_AUTO_DELETE_WEBHOOK=true`
+- command is not auto-published in visible UI menus by this app
+- available actions:
+  - leaderboard reset with manual confirmation (enter current max score)
+  - leaderboard restore from latest backup with manual confirmation
+  - manual bestScore update by `@username` or `telegramId`
+  - view last 15 game results
+  - manual bestScore rebuild from `GameResult`
+    - rebuild uses only runs from current leaderboard epoch (after the latest reset)
+
+## Readable Logs
+
+Backend logs are configurable with env vars:
+
+```bash
+LOG_LEVEL=info
+LOG_PRETTY=true
+LOG_REQUESTS=true
+```
+
+- `LOG_PRETTY=true` enables human-readable one-line logs (recommended for dev/ops terminal).
+- `LOG_PRETTY=false` switches back to JSON logs.
+- `LOG_REQUESTS=false` disables automatic per-request access logs.
 
 ## Manual Verification Plan
 
