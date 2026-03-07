@@ -1,8 +1,12 @@
 import {
   ACCELERATION,
+  CLUSTER_SPACING,
   FLYING_MIN_SPEED,
+  GAP_DENSITY_FACTOR,
+  GROUND_CLUSTER_CHANCE,
   INITIAL_SPEED,
   INITIAL_SPAWN_DELAY_MS,
+  MAX_GROUND_CLUSTER,
   MAX_OBSTACLE_DUPLICATION,
   MAX_SPEED,
   MIN_SPAWN_DELAY_MS,
@@ -63,6 +67,7 @@ export class ChromeDinoRuntime {
   private lastTypeKey: ObstacleKey | null = null;
   private lastTypeDuplication = 0;
   private lastWasFlying = false;
+  private lastWasCluster = false;
 
   constructor(physics: SkinPhysics, obstacles: SkinObstacle[]) {
     this.physics = physics;
@@ -78,6 +83,7 @@ export class ChromeDinoRuntime {
     this.lastTypeKey = null;
     this.lastTypeDuplication = 0;
     this.lastWasFlying = false;
+    this.lastWasCluster = false;
   }
 
   getChromeSpeed(): number {
@@ -105,10 +111,11 @@ export class ChromeDinoRuntime {
       const decision = this.createSpawnDecision();
       spawns.push(decision);
 
-      this.commitPattern(decision.type, decision.flyingHeightIndex);
+      this.commitPattern(decision.type, decision.clusterCount);
       this.nextSpawnTimerMs = this.computeNextSpawnDelay(
         worldSpeed,
         decision.type,
+        decision.clusterCount,
         decision.flyingHeightIndex
       );
     }
@@ -156,13 +163,14 @@ export class ChromeDinoRuntime {
 
   private createSpawnDecision(): RuntimeSpawnDecision {
     const selectedType = this.pickObstacleType();
+    const clusterCount = this.pickClusterCount(selectedType);
     const flyingHeightIndex =
       selectedType.category === 'flying' ? this.pickFlyingHeight() : null;
 
     return {
       type: selectedType.obstacle,
-      clusterCount: 1,
-      clusterSpacing: 0,
+      clusterCount,
+      clusterSpacing: clusterCount > 1 ? CLUSTER_SPACING : 0,
       flyingHeightIndex,
       flyingYOffset:
         flyingHeightIndex === null ? null : NO_CROUCH_FLYING_HEIGHTS[flyingHeightIndex]
@@ -212,9 +220,26 @@ export class ChromeDinoRuntime {
     return 2;
   }
 
+  private pickClusterCount(type: ObstacleMeta): number {
+    if (type.category === 'flying') {
+      return 1;
+    }
+
+    if (this.lastWasCluster || this.lastWasFlying) {
+      return 1;
+    }
+
+    if (this.chromeSpeed < 1.25) {
+      return 1;
+    }
+
+    return Math.random() < GROUND_CLUSTER_CHANCE ? MAX_GROUND_CLUSTER : 1;
+  }
+
   private computeNextSpawnDelay(
     worldSpeed: number,
     obstacle: SkinObstacle,
+    clusterCount: number,
     flyingHeightIndex: number | null
   ): number {
     const baseIntervalMs = randomInt(SPAWN_INTERVAL_MIN_MS, SPAWN_INTERVAL_MAX_MS);
@@ -225,9 +250,13 @@ export class ChromeDinoRuntime {
     const reactionTime = jumpRequired ? 0.24 : 0.16;
     const safetyPadding = jumpRequired ? 125 : 85;
 
-    const minDistance = obstacle.width + worldSpeed * reactionTime + safetyPadding;
+    const obstacleSpan =
+      obstacle.width * clusterCount + CLUSTER_SPACING * Math.max(0, clusterCount - 1);
+    const minDistance = obstacleSpan + worldSpeed * reactionTime + safetyPadding;
     const intervalDistance = worldSpeed * (intervalMs / 1000);
     let targetDistance = Math.max(minDistance, intervalDistance);
+
+    targetDistance *= GAP_DENSITY_FACTOR;
 
     if (this.lastWasFlying || jumpRequired) {
       targetDistance *= 1.1;
@@ -240,7 +269,7 @@ export class ChromeDinoRuntime {
     return Math.max(delay, MIN_SPAWN_DELAY_MS);
   }
 
-  private commitPattern(type: SkinObstacle, flyingHeightIndex: number | null): void {
+  private commitPattern(type: SkinObstacle, clusterCount: number): void {
     const key = this.resolveKeyByObstacleId(type.id);
 
     if (this.lastTypeKey === key) {
@@ -251,6 +280,7 @@ export class ChromeDinoRuntime {
 
     this.lastTypeKey = key;
     this.lastWasFlying = type.category === 'flying';
+    this.lastWasCluster = clusterCount > 1;
   }
 
   private resolveKeyByObstacleId(obstacleId: string): ObstacleKey {

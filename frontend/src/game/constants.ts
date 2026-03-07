@@ -15,3 +15,9 @@ export const INITIAL_SPAWN_DELAY_MS = 650;
 export const SPAWN_INTERVAL_MIN_MS = 680;
 export const SPAWN_INTERVAL_MAX_MS = 1600;
 export const MIN_SPAWN_DELAY_MS = 430;
+
+// Gameplay density and grouping
+export const GAP_DENSITY_FACTOR = 0.9; // 10% denser than current pacing
+export const MAX_GROUND_CLUSTER = 2;
+export const GROUND_CLUSTER_CHANCE = 0.16;
+export const CLUSTER_SPACING = 18;
