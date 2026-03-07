@@ -3,6 +3,12 @@ import { getMe } from '../services/api';
 import type { ApiUser } from '../services/api';
 import { Card } from '../ui/components/Card';
 
+interface ProfileScreenProps {
+  active?: boolean;
+}
+
+const SCORE_SUBMITTED_EVENT = 'dino:score-submitted';
+
 const formatDuration = (seconds: number): string => {
   const safe = Math.max(0, seconds);
   const hours = Math.floor(safe / 3600);
@@ -24,16 +30,19 @@ const asBigIntString = (value: string): string => {
   }
 };
 
-export const ProfileScreen = () => {
+export const ProfileScreen = ({ active = true }: ProfileScreenProps) => {
   const [user, setUser] = useState<ApiUser | null>(null);
 
   useEffect(() => {
-    let active = true;
+    if (!active) {
+      return;
+    }
 
+    let disposed = false;
     const fetchMe = async () => {
       try {
         const response = await getMe();
-        if (active) {
+        if (!disposed) {
           setUser(response.user);
         }
       } catch (error) {
@@ -43,12 +52,18 @@ export const ProfileScreen = () => {
       }
     };
 
+    const onScoreSubmitted = () => {
+      void fetchMe();
+    };
+
     void fetchMe();
+    window.addEventListener(SCORE_SUBMITTED_EVENT, onScoreSubmitted);
 
     return () => {
-      active = false;
+      disposed = true;
+      window.removeEventListener(SCORE_SUBMITTED_EVENT, onScoreSubmitted);
     };
-  }, []);
+  }, [active]);
 
   return (
     <div className="screen-stack">

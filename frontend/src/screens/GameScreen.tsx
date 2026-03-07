@@ -223,6 +223,7 @@ export const GameScreen = ({ active = true }: GameScreenProps) => {
               if (response.scoreAccepted) {
                 setHasServerBest(true);
                 setServerBest((current) => Math.max(current, response.userBestScore));
+                window.dispatchEvent(new CustomEvent('dino:score-submitted'));
               }
             } catch (error) {
               if (import.meta.env.DEV) {

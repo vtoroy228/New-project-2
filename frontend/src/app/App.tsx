@@ -244,7 +244,7 @@ export const App = () => {
       <main className="app-content">
         {mountedTabs.leaderboard ? (
           <section className={`tab-panel ${activeTab === 'leaderboard' ? '' : 'tab-panel-hidden'}`}>
-            <LeaderboardScreen />
+            <LeaderboardScreen active={activeTab === 'leaderboard'} />
           </section>
         ) : null}
         {mountedTabs.game ? (
@@ -254,7 +254,7 @@ export const App = () => {
         ) : null}
         {mountedTabs.profile ? (
           <section className={`tab-panel ${activeTab === 'profile' ? '' : 'tab-panel-hidden'}`}>
-            <ProfileScreen />
+            <ProfileScreen active={activeTab === 'profile'} />
           </section>
         ) : null}
       </main>

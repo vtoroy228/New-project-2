@@ -4,6 +4,12 @@ import type { GlobalLeaderboardResponse, LeaderboardEntry } from '../services/ap
 import { tokens } from '../ui/theme/tokens';
 import { Card } from '../ui/components/Card';
 
+interface LeaderboardScreenProps {
+  active?: boolean;
+}
+
+const SCORE_SUBMITTED_EVENT = 'dino:score-submitted';
+
 const renderName = (entry: LeaderboardEntry): string => {
   const fullName = [entry.firstName, entry.lastName ?? ''].join(' ').trim();
   if (fullName.length > 0) {
@@ -17,36 +23,48 @@ const renderName = (entry: LeaderboardEntry): string => {
   return 'Игрок';
 };
 
-export const LeaderboardScreen = () => {
+export const LeaderboardScreen = ({ active = true }: LeaderboardScreenProps) => {
   const [data, setData] = useState<GlobalLeaderboardResponse | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    let active = true;
+    if (!active) {
+      return;
+    }
 
+    let disposed = false;
     const fetchData = async () => {
       try {
         const next = await getGlobalLeaderboard();
-        if (active) {
-          setData(next);
+        if (disposed) {
+          return;
         }
+
+        setData(next);
       } catch (error) {
         if (import.meta.env.DEV) {
           console.info('[leaderboard] failed to load', error);
         }
       } finally {
-        if (active) {
+        if (!disposed) {
           setLoading(false);
         }
       }
     };
 
+    const onScoreSubmitted = () => {
+      void fetchData();
+    };
+
+    setLoading(true);
     void fetchData();
+    window.addEventListener(SCORE_SUBMITTED_EVENT, onScoreSubmitted);
 
     return () => {
-      active = false;
+      disposed = true;
+      window.removeEventListener(SCORE_SUBMITTED_EVENT, onScoreSubmitted);
     };
-  }, []);
+  }, [active]);
 
   return (
     <div className="screen-stack leaderboard-screen">
