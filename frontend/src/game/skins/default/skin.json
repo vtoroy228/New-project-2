@@ -2,10 +2,6 @@
   "physics": {
     "gravity": 1950,
     "jumpVelocity": 740,
-    "initialSpeed": 320,
-    "speedAcceleration": 14,
-    "minObstacleGap": 210,
-    "maxObstacleGap": 410,
     "scorePerSecond": 12,
     "scorePerObstacle": 45,
     "groundOffset": 40

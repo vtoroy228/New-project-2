@@ -12,10 +12,6 @@ export interface SkinRect {
 export interface SkinPhysics {
   gravity: number;
   jumpVelocity: number;
-  initialSpeed: number;
-  speedAcceleration: number;
-  minObstacleGap: number;
-  maxObstacleGap: number;
   scorePerSecond: number;
   scorePerObstacle: number;
   groundOffset: number;
@@ -56,20 +52,39 @@ const skinManifests: Record<string, SkinManifest> = {
   default: defaultSkinManifest as SkinManifest
 };
 
-const loadImage = async (url: string): Promise<HTMLImageElement> => {
-  const image = new Image();
-  image.src = url;
+const imageCache = new Map<string, Promise<HTMLImageElement>>();
+const skinCache = new Map<string, Promise<LoadedSkin>>();
 
-  try {
-    await image.decode();
-  } catch {
-    await new Promise<void>((resolve, reject) => {
-      image.onload = () => resolve();
-      image.onerror = () => reject(new Error(`Failed to load image: ${url}`));
-    });
+const loadImage = async (url: string): Promise<HTMLImageElement> => {
+  const cached = imageCache.get(url);
+  if (cached) {
+    return cached;
   }
 
-  return image;
+  const promise = (async () => {
+    const image = new Image();
+    image.src = url;
+
+    try {
+      await image.decode();
+    } catch {
+      await new Promise<void>((resolve, reject) => {
+        image.onload = () => resolve();
+        image.onerror = () => reject(new Error(`Failed to load image: ${url}`));
+      });
+    }
+
+    return image;
+  })();
+
+  imageCache.set(url, promise);
+
+  try {
+    return await promise;
+  } catch (error) {
+    imageCache.delete(url);
+    throw error;
+  }
 };
 
 const resolveAssetUrl = (skinName: string, assetPath: string): string => {
@@ -77,23 +92,40 @@ const resolveAssetUrl = (skinName: string, assetPath: string): string => {
 };
 
 export const loadSkin = async (skinName = DEFAULT_SKIN): Promise<LoadedSkin> => {
-  const manifest = skinManifests[skinName] ?? skinManifests.default;
+  const resolvedSkinName = skinManifests[skinName] ? skinName : DEFAULT_SKIN;
+  const cached = skinCache.get(resolvedSkinName);
+  if (cached) {
+    return cached;
+  }
 
-  const dinoImage = await loadImage(resolveAssetUrl(skinName, manifest.dino.sprite));
+  const promise = (async () => {
+    const manifest = skinManifests[resolvedSkinName] ?? skinManifests.default;
 
-  const obstacleImages = Object.fromEntries(
-    await Promise.all(
-      manifest.obstacles.map(async (obstacle) => {
-        const image = await loadImage(resolveAssetUrl(skinName, obstacle.sprite));
-        return [obstacle.id, image] as const;
-      })
-    )
-  );
+    const dinoImage = await loadImage(resolveAssetUrl(resolvedSkinName, manifest.dino.sprite));
 
-  return {
-    name: skinName,
-    manifest,
-    dinoImage,
-    obstacleImages
-  };
+    const obstacleImages = Object.fromEntries(
+      await Promise.all(
+        manifest.obstacles.map(async (obstacle) => {
+          const image = await loadImage(resolveAssetUrl(resolvedSkinName, obstacle.sprite));
+          return [obstacle.id, image] as const;
+        })
+      )
+    );
+
+    return {
+      name: resolvedSkinName,
+      manifest,
+      dinoImage,
+      obstacleImages
+    };
+  })();
+
+  skinCache.set(resolvedSkinName, promise);
+
+  try {
+    return await promise;
+  } catch (error) {
+    skinCache.delete(resolvedSkinName);
+    throw error;
+  }
 };

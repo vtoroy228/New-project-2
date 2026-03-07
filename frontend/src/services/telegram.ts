@@ -13,7 +13,8 @@ export interface TelegramBootstrapState {
   error: 'EMPTY_INIT_DATA' | null;
 }
 
-const DEV_MOCK_ENABLED = import.meta.env.VITE_DEV_MOCK_TELEGRAM === 'true';
+const DEV_MOCK_ENABLED =
+  import.meta.env.DEV && import.meta.env.VITE_DEV_MOCK_TELEGRAM === 'true';
 
 let telegramReadyCalled = false;
 
@@ -55,18 +56,6 @@ export const bootstrapTelegram = (): TelegramBootstrapState => {
     };
 
     devLog('telegram auth detected', { initDataLength: initData.length, mode: 'telegram' });
-    return state;
-  }
-
-  if (isTelegramWebApp && initData.length === 0 && DEV_MOCK_ENABLED) {
-    const state: TelegramBootstrapState = {
-      isTelegramWebApp,
-      mode: 'mock',
-      initData: 'dev-mock',
-      error: null
-    };
-
-    devLog('telegram webapp without initData, using dev mock', { initDataLength: 0, mode: 'mock' });
     return state;
   }
 

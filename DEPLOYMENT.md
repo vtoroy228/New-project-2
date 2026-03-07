@@ -23,6 +23,8 @@ Required:
 Optional (dev only, should be false/omitted in prod):
 
 - `DEV_MOCK_TELEGRAM=false`
+- `VITE_DEV_MOCK_TELEGRAM=false`
+- `AUTH_DEBUG_LOGS=false`
 
 ## 2. Build Docker Image
 

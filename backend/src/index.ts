@@ -32,7 +32,8 @@ const parseBooleanEnv = (value: string | undefined, fallback: boolean): boolean 
 };
 
 const logLevel = process.env.LOG_LEVEL ?? 'info';
-const prettyLogsEnabled = parseBooleanEnv(process.env.LOG_PRETTY, process.env.NODE_ENV !== 'production');
+const isProduction = process.env.NODE_ENV === 'production';
+const prettyLogsEnabled = !isProduction && parseBooleanEnv(process.env.LOG_PRETTY, true);
 const requestLogsEnabled = parseBooleanEnv(process.env.LOG_REQUESTS, true);
 
 const app = fastify({
@@ -109,7 +110,20 @@ const frontendDist = path.resolve(__dirname, '../../frontend/dist');
 if (existsSync(frontendDist)) {
   app.register(fastifyStatic, {
     root: frontendDist,
-    prefix: '/'
+    prefix: '/',
+    setHeaders: (res, filePath) => {
+      if (filePath.includes(`${path.sep}assets${path.sep}`)) {
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        return;
+      }
+
+      if (filePath.endsWith(`${path.sep}index.html`)) {
+        res.setHeader('Cache-Control', 'no-cache');
+        return;
+      }
+
+      res.setHeader('Cache-Control', 'public, max-age=300');
+    }
   });
 }
 

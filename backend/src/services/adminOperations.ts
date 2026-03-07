@@ -355,25 +355,18 @@ export const restoreLatestLeaderboardBackup = async (
 export const rebuildBestScoresFromResults = async (): Promise<RebuildBestScoresResult> => {
   const epochStart = await getLeaderboardEpochStart();
 
-  await prisma.$transaction(async (tx) => {
-    await tx.user.updateMany({
-      data: {
-        bestScore: 0
-      }
-    });
-
-    await tx.$executeRaw`
-      UPDATE "User" AS u
-      SET "bestScore" = src.max_score
-      FROM (
-        SELECT "userId", MAX("score")::int AS max_score
-        FROM "GameResult"
-        WHERE "createdAt" >= ${epochStart}
-        GROUP BY "userId"
-      ) AS src
-      WHERE u.id = src."userId"
-    `;
-  });
+  await prisma.$executeRaw`
+    UPDATE "User" AS u
+    SET "bestScore" = src.max_score
+    FROM (
+      SELECT "userId", MAX("score")::int AS max_score
+      FROM "GameResult"
+      WHERE "createdAt" >= ${epochStart}
+      GROUP BY "userId"
+    ) AS src
+    WHERE u.id = src."userId"
+      AND src.max_score > u."bestScore"
+  `;
 
   const [playersWithScore, top] = await Promise.all([
     prisma.user.count({
@@ -479,18 +472,6 @@ export const setUserBestScoreById = async (
 
   invalidateGlobalLeaderboardCache();
   return toAdminUser(updatedUser);
-};
-
-export const setUserBestScoreByReference = async (
-  reference: string,
-  newBestScore: number
-): Promise<AdminResolvedUser | null> => {
-  const user = await resolveUserForAdmin(reference);
-  if (!user) {
-    return null;
-  }
-
-  return setUserBestScoreById(user.id, newBestScore);
 };
 
 export const getRecentGameResults = async (limit = 15): Promise<AdminRecentGame[]> => {

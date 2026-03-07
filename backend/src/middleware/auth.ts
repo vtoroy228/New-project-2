@@ -11,6 +11,7 @@ interface AuthOptions {
 }
 
 const isDev = process.env.NODE_ENV !== 'production';
+const authDebugLogsEnabled = isDev && process.env.AUTH_DEBUG_LOGS === 'true';
 
 const isDevMockEnabled = (): boolean => {
   return isDev && process.env.DEV_MOCK_TELEGRAM === 'true';
@@ -82,7 +83,7 @@ const upsertUser = async (telegramUser: {
 export const withAuth = (options: AuthOptions = {}) => {
   return async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
     const initData = resolveInitData(request);
-    if (isDev) {
+    if (authDebugLogsEnabled) {
       request.log.info(
         {
           authHeaderPresent: Boolean(request.headers.authorization),
@@ -106,7 +107,7 @@ export const withAuth = (options: AuthOptions = {}) => {
       initData === 'dev-mock' && isDevMockEnabled()
         ? buildDevMockUserFromEnv()
         : null;
-    if (isDev && telegramUser) {
+    if (authDebugLogsEnabled && telegramUser) {
       request.log.info({ authMode: 'dev-mock' }, '[auth] using mock telegram user');
     }
 
@@ -122,7 +123,7 @@ export const withAuth = (options: AuthOptions = {}) => {
     }
 
     if (!telegramUser) {
-      if (isDev) {
+      if (authDebugLogsEnabled) {
         const params = new URLSearchParams(initData);
         request.log.info({ authStatus: 'invalid_init_data' }, '[auth] rejected initData');
         request.log.info(
@@ -149,7 +150,7 @@ export const withAuth = (options: AuthOptions = {}) => {
       reply.code(403).send({ error: 'User is banned' });
       return;
     }
-    if (isDev) {
+    if (authDebugLogsEnabled) {
       request.log.info(
         {
           authStatus: 'ok',

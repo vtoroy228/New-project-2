@@ -103,7 +103,7 @@ export class GameEngine {
 
     this.context = context;
     this.skin = options.skin;
-    this.runtime = new ChromeDinoRuntime(this.skin.manifest.physics, this.skin.manifest.obstacles);
+    this.runtime = new ChromeDinoRuntime(this.skin.manifest.obstacles);
     this.settings = options.settings;
     this.onTick = options.onTick;
     this.onGameOver = options.onGameOver;

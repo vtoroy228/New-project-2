@@ -83,7 +83,7 @@ export class SoundManager {
 
   private context: AudioContext | null = null;
   private buffers: Partial<Record<SoundName, AudioBuffer | null>> = {};
-  private loadingPromise: Promise<void> | null = null;
+  private loadingPromises: Partial<Record<SoundName, Promise<AudioBuffer | null>>> = {};
   private lastPlayedAt: Partial<Record<SoundName, number>> = {};
   private sfxVolume = 0.7;
   private musicEnabled = true;
@@ -118,31 +118,34 @@ export class SoundManager {
     return this.context;
   }
 
-  private ensureBuffersLoaded(): Promise<void> {
-    if (this.loadingPromise) {
-      return this.loadingPromise;
+  private async ensureBufferLoaded(name: SoundName): Promise<AudioBuffer | null> {
+    const existing = this.buffers[name];
+    if (existing !== undefined) {
+      return existing;
+    }
+
+    const loading = this.loadingPromises[name];
+    if (loading) {
+      return loading;
     }
 
     const context = this.ensureContext();
     if (!context) {
-      this.loadingPromise = Promise.resolve();
-      return this.loadingPromise;
+      this.buffers[name] = null;
+      return null;
     }
 
-    this.loadingPromise = (async () => {
-      const entries = await Promise.all(
-        (Object.keys(SOUND_SOURCES) as SoundName[]).map(async (name) => {
-          const buffer = await decodeAudioBuffer(context, SOUND_SOURCES[name]);
-          return [name, buffer] as const;
-        })
-      );
-
-      entries.forEach(([name, buffer]) => {
+    const promise = decodeAudioBuffer(context, SOUND_SOURCES[name])
+      .then((buffer) => {
         this.buffers[name] = buffer;
+        return buffer;
+      })
+      .finally(() => {
+        delete this.loadingPromises[name];
       });
-    })();
 
-    return this.loadingPromise;
+    this.loadingPromises[name] = promise;
+    return promise;
   }
 
   async unlock(): Promise<void> {
@@ -155,8 +158,9 @@ export class SoundManager {
       await context.resume();
     }
 
-    await this.ensureBuffersLoaded();
-    this.applyMusicState();
+    void this.ensureBufferLoaded('jump');
+    void this.ensureBufferLoaded('fireworks');
+    await this.applyMusicState();
   }
 
   setVolume(nextVolume: number): void {
@@ -224,9 +228,7 @@ export class SoundManager {
       }
     }
 
-    await this.ensureBuffersLoaded();
-
-    const buffer = this.buffers[name];
+    const buffer = await this.ensureBufferLoaded(name);
     if (buffer) {
       const source = context.createBufferSource();
       const gain = context.createGain();
@@ -290,8 +292,6 @@ export class SoundManager {
       }
     }
 
-    await this.ensureBuffersLoaded();
-
     const gain = this.ensureMusicGain(context);
     const targetVolume =
       this.bgmActive && this.musicEnabled ? clampVolume(this.sfxVolume * this.musicRatio) : 0;
@@ -306,7 +306,7 @@ export class SoundManager {
       return;
     }
 
-    const buffer = this.buffers.bgm;
+    const buffer = await this.ensureBufferLoaded('bgm');
     if (buffer) {
       const source = context.createBufferSource();
       source.buffer = buffer;

@@ -69,9 +69,6 @@ type AdminSession =
     }
   | {
       kind: 'await_restore_confirmation';
-      backupId: string;
-      expectedMaxScore: number;
-      backupCreatedAt: string;
     }
   | {
       kind: 'await_score_value';
@@ -433,10 +430,7 @@ const handleAdminCommand = async (
     }
 
     sessions.set(chatId, {
-      kind: 'await_restore_confirmation',
-      backupId: backupMeta.backupId,
-      expectedMaxScore: backupMeta.maxScore,
-      backupCreatedAt: backupMeta.createdAt
+      kind: 'await_restore_confirmation'
     });
     await sendMessage(
       botToken,

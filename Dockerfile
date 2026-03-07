@@ -4,11 +4,12 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 COPY backend/package.json ./backend/package.json
 COPY frontend/package.json ./frontend/package.json
-RUN npm install
+RUN npm ci
 
 COPY . .
 RUN npm run prisma:generate --workspace backend
 RUN npm run build
+RUN npm prune --omit=dev
 
 FROM node:20-alpine AS runner
 WORKDIR /app
@@ -23,4 +24,5 @@ COPY --from=builder /app/backend/prisma ./backend/prisma
 COPY --from=builder /app/frontend/dist ./frontend/dist
 
 EXPOSE 3000
+USER node
 CMD ["node", "backend/dist/index.js"]

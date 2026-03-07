@@ -69,7 +69,11 @@ const createSessionId = (): string => {
   return `${Date.now()}-${Math.floor(Math.random() * 100000)}`;
 };
 
-export const GameScreen = () => {
+interface GameScreenProps {
+  active?: boolean;
+}
+
+export const GameScreen = ({ active = true }: GameScreenProps) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const canvasWrapperRef = useRef<HTMLDivElement | null>(null);
   const engineRef = useRef<GameEngine | null>(null);
@@ -78,6 +82,8 @@ export const GameScreen = () => {
 
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [skinReady, setSkinReady] = useState(false);
+  const [skinLoadError, setSkinLoadError] = useState<string | null>(null);
+  const [skinBootToken, setSkinBootToken] = useState(0);
   const [isRunning, setIsRunning] = useState(false);
   const [score, setScore] = useState(0);
   const [playTime, setPlayTime] = useState(0);
@@ -107,6 +113,12 @@ export const GameScreen = () => {
       soundManager.stopMusic();
     }
   }, [settings]);
+
+  useEffect(() => {
+    if (!active) {
+      setSettingsOpen(false);
+    }
+  }, [active]);
 
   useEffect(() => {
     localBestRef.current = localBest;
@@ -155,77 +167,89 @@ export const GameScreen = () => {
         return;
       }
 
-      const skin = await loadSkin(DEFAULT_SKIN);
-      if (disposed) {
-        return;
-      }
-
-      const engine = new GameEngine({
-        canvas,
-        skin,
-        settings: settingsRef.current,
-        onTick: (snapshot) => {
-          setScore(snapshot.score);
-          setPlayTime(snapshot.playTime);
-          setIsRunning(snapshot.running);
-        },
-        onGameOver: async (snapshot) => {
-          const vibrationEnabled = settingsRef.current.vibrationEnabled;
-          triggerGameOverHaptic(vibrationEnabled);
-
-          const previousBest = hasServerBestRef.current
-            ? serverBestRef.current
-            : Math.max(localBestRef.current, serverBestRef.current);
-          const isNewRecord = snapshot.score > previousBest;
-          if (isNewRecord) {
-            localBestRef.current = snapshot.score;
-            setLocalBest(snapshot.score);
-            localStorage.setItem(LOCAL_BEST_KEY, String(snapshot.score));
-          }
-
-          if (isNewRecord) {
-            setConfettiVisible(true);
-            soundManager.play('fireworks');
-            triggerSuccessHaptic(vibrationEnabled);
-
-            if (confettiTimeoutRef.current) {
-              window.clearTimeout(confettiTimeoutRef.current);
-            }
-
-            confettiTimeoutRef.current = window.setTimeout(() => {
-              setConfettiVisible(false);
-            }, 2200);
-          }
-
-          try {
-            const response = await submitGameResult({
-              score: snapshot.score,
-              playTime: snapshot.playTime,
-              obstacles: snapshot.obstacles,
-              sessionId: createSessionId()
-            });
-
-            if (response.scoreAccepted) {
-              setHasServerBest(true);
-              setServerBest((current) => Math.max(current, response.userBestScore));
-            }
-          } catch (error) {
-            if (import.meta.env.DEV) {
-              console.info('[game] failed to submit result', error);
-            }
-          }
+      try {
+        setSkinLoadError(null);
+        setSkinReady(false);
+        const skin = await loadSkin(DEFAULT_SKIN);
+        if (disposed) {
+          return;
         }
-      });
 
-      engineRef.current = engine;
+        const engine = new GameEngine({
+          canvas,
+          skin,
+          settings: settingsRef.current,
+          onTick: (snapshot) => {
+            setScore(snapshot.score);
+            setPlayTime(snapshot.playTime);
+            setIsRunning(snapshot.running);
+          },
+          onGameOver: async (snapshot) => {
+            const vibrationEnabled = settingsRef.current.vibrationEnabled;
+            triggerGameOverHaptic(vibrationEnabled);
 
-      const wrapper = canvasWrapperRef.current;
-      if (wrapper) {
-        const bounds = wrapper.getBoundingClientRect();
-        engine.resize(bounds.width, bounds.height);
+            const previousBest = hasServerBestRef.current
+              ? serverBestRef.current
+              : Math.max(localBestRef.current, serverBestRef.current);
+            const isNewRecord = snapshot.score > previousBest;
+            if (isNewRecord) {
+              localBestRef.current = snapshot.score;
+              setLocalBest(snapshot.score);
+              localStorage.setItem(LOCAL_BEST_KEY, String(snapshot.score));
+            }
+
+            if (isNewRecord) {
+              setConfettiVisible(true);
+              soundManager.play('fireworks');
+              triggerSuccessHaptic(vibrationEnabled);
+
+              if (confettiTimeoutRef.current) {
+                window.clearTimeout(confettiTimeoutRef.current);
+              }
+
+              confettiTimeoutRef.current = window.setTimeout(() => {
+                setConfettiVisible(false);
+              }, 2200);
+            }
+
+            try {
+              const response = await submitGameResult({
+                score: snapshot.score,
+                playTime: snapshot.playTime,
+                obstacles: snapshot.obstacles,
+                sessionId: createSessionId()
+              });
+
+              if (response.scoreAccepted) {
+                setHasServerBest(true);
+                setServerBest((current) => Math.max(current, response.userBestScore));
+              }
+            } catch (error) {
+              if (import.meta.env.DEV) {
+                console.info('[game] failed to submit result', error);
+              }
+            }
+          }
+        });
+
+        engineRef.current = engine;
+
+        const wrapper = canvasWrapperRef.current;
+        if (wrapper) {
+          const bounds = wrapper.getBoundingClientRect();
+          engine.resize(bounds.width, bounds.height);
+        }
+
+        setSkinReady(true);
+      } catch (error) {
+        if (disposed) {
+          return;
+        }
+        setSkinLoadError('Не удалось загрузить игру. Проверьте соединение и попробуйте снова.');
+        if (import.meta.env.DEV) {
+          console.info('[game] failed to load skin', error);
+        }
       }
-
-      setSkinReady(true);
     };
 
     void setup();
@@ -240,7 +264,7 @@ export const GameScreen = () => {
       engineRef.current?.destroy();
       engineRef.current = null;
     };
-  }, []);
+  }, [skinBootToken]);
 
   useEffect(() => {
     const wrapper = canvasWrapperRef.current;
@@ -315,6 +339,21 @@ export const GameScreen = () => {
             <button type="button" className="play-overlay-button" onClick={handleStart}>
               {startLabel}
             </button>
+          ) : null}
+
+          {!skinReady ? (
+            <div className="game-loading-overlay">
+              <span>{skinLoadError ?? 'Загрузка игры...'}</span>
+              {skinLoadError ? (
+                <Button
+                  onClick={() => {
+                    setSkinBootToken((current) => current + 1);
+                  }}
+                >
+                  Повторить
+                </Button>
+              ) : null}
+            </div>
           ) : null}
 
           <button

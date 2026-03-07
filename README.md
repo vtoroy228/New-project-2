@@ -50,6 +50,12 @@ npm run dev
 - Backend: `http://localhost:3000`
 - Frontend requests only same-origin style paths (`/api/...`) and uses Vite proxy in dev.
 
+Optional browser-only local auth (outside Telegram):
+
+```bash
+DEV_MOCK_TELEGRAM=true VITE_DEV_MOCK_TELEGRAM=true npm run dev
+```
+
 ## Production Run
 
 ```bash
@@ -157,13 +163,13 @@ Env flags:
 TELEGRAM_ADMIN_BOT_ENABLED=true
 ADMIN_TELEGRAM_IDS=123456789,987654321
 TELEGRAM_ADMIN_HIDDEN_COMMAND=/__admin
-TELEGRAM_ADMIN_BOT_AUTO_DELETE_WEBHOOK=true
+TELEGRAM_ADMIN_BOT_AUTO_DELETE_WEBHOOK=false
 ```
 
 How it works:
 - panel is available only in private chat and only for users from `ADMIN_TELEGRAM_IDS`
 - panel opens only after sending hidden command `TELEGRAM_ADMIN_HIDDEN_COMMAND`
-- on startup bot can auto-disable webhook (for polling mode) if `TELEGRAM_ADMIN_BOT_AUTO_DELETE_WEBHOOK=true`
+- optional: set `TELEGRAM_ADMIN_BOT_AUTO_DELETE_WEBHOOK=true` to auto-disable webhook for polling mode
 - command is not auto-published in visible UI menus by this app
 - available actions:
   - leaderboard reset with manual confirmation (enter current max score)
@@ -181,11 +187,13 @@ Backend logs are configurable with env vars:
 LOG_LEVEL=info
 LOG_PRETTY=true
 LOG_REQUESTS=true
+AUTH_DEBUG_LOGS=false
 ```
 
 - `LOG_PRETTY=true` enables human-readable one-line logs (recommended for dev/ops terminal).
 - `LOG_PRETTY=false` switches back to JSON logs.
 - `LOG_REQUESTS=false` disables automatic per-request access logs.
+- `AUTH_DEBUG_LOGS=true` enables verbose auth debug traces in development only.
 
 ## Manual Verification Plan
 

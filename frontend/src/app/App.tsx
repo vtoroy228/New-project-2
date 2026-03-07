@@ -33,6 +33,11 @@ export const App = () => {
   useTheme();
 
   const [activeTab, setActiveTab] = useState<TabId>('game');
+  const [mountedTabs, setMountedTabs] = useState<Record<TabId, boolean>>({
+    leaderboard: false,
+    game: true,
+    profile: false
+  });
   const [authState, setAuthState] = useState<AuthViewState>('loading');
   const [authError, setAuthError] = useState<string | null>(null);
   const [authUser, setAuthUser] = useState<ApiUser | null>(null);
@@ -150,6 +155,19 @@ export const App = () => {
     };
   }, [authState]);
 
+  useEffect(() => {
+    setMountedTabs((current) => {
+      if (current[activeTab]) {
+        return current;
+      }
+
+      return {
+        ...current,
+        [activeTab]: true
+      };
+    });
+  }, [activeTab]);
+
   const fallbackUser = useMemo(() => getDisplayUser(), []);
 
   const fullNameFromAuth = authUser
@@ -224,9 +242,21 @@ export const App = () => {
       </header>
 
       <main className="app-content">
-        {activeTab === 'leaderboard' ? <LeaderboardScreen /> : null}
-        {activeTab === 'game' ? <GameScreen /> : null}
-        {activeTab === 'profile' ? <ProfileScreen /> : null}
+        {mountedTabs.leaderboard ? (
+          <section className={`tab-panel ${activeTab === 'leaderboard' ? '' : 'tab-panel-hidden'}`}>
+            <LeaderboardScreen />
+          </section>
+        ) : null}
+        {mountedTabs.game ? (
+          <section className={`tab-panel ${activeTab === 'game' ? '' : 'tab-panel-hidden'}`}>
+            <GameScreen active={activeTab === 'game'} />
+          </section>
+        ) : null}
+        {mountedTabs.profile ? (
+          <section className={`tab-panel ${activeTab === 'profile' ? '' : 'tab-panel-hidden'}`}>
+            <ProfileScreen />
+          </section>
+        ) : null}
       </main>
 
       <TabBar tabs={APP_TABS} activeTab={activeTab} onChange={setActiveTab} />

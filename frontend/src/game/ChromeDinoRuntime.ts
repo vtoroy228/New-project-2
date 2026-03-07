@@ -15,7 +15,7 @@ import {
   SPAWN_INTERVAL_MIN_MS,
   WORLD_SPEED_SCALE
 } from './constants';
-import type { ObstacleCategory, SkinObstacle, SkinPhysics } from './SkinLoader';
+import type { ObstacleCategory, SkinObstacle } from './SkinLoader';
 
 export interface RuntimeSpawnDecision {
   type: SkinObstacle;
@@ -57,7 +57,6 @@ const randomFrom = <T>(items: readonly T[]): T => {
 };
 
 export class ChromeDinoRuntime {
-  private readonly physics: SkinPhysics;
   private readonly obstacleMetas: ObstacleMeta[];
 
   private chromeSpeed = INITIAL_SPEED;
@@ -69,8 +68,7 @@ export class ChromeDinoRuntime {
   private lastWasFlying = false;
   private lastWasCluster = false;
 
-  constructor(physics: SkinPhysics, obstacles: SkinObstacle[]) {
-    this.physics = physics;
+  constructor(obstacles: SkinObstacle[]) {
     this.obstacleMetas = this.buildObstacleMetas(obstacles);
     this.reset();
   }
