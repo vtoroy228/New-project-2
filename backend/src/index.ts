@@ -2,6 +2,7 @@ import path from 'node:path';
 import { existsSync } from 'node:fs';
 import dotenv from 'dotenv';
 import fastify from 'fastify';
+import fastifyCompress from '@fastify/compress';
 import fastifyStatic from '@fastify/static';
 import { prisma } from './db/prisma';
 import { adminRoutes } from './routes/admin';
@@ -99,6 +100,12 @@ app.get('/readyz', async (request, reply) => {
     request.log.error(error, 'readiness check failed');
     reply.code(503).send({ ok: false, status: 'db_unavailable' });
   }
+});
+
+app.register(fastifyCompress, {
+  global: true,
+  threshold: 1024,
+  encodings: ['br', 'gzip', 'deflate']
 });
 
 app.register(authRoutes, { prefix: '/api/auth' });

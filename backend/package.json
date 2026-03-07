@@ -15,6 +15,7 @@
     "prisma:migrate": "prisma migrate dev"
   },
   "dependencies": {
+    "@fastify/compress": "^8.1.0",
     "@fastify/static": "^7.0.4",
     "@prisma/client": "^6.5.0",
     "dotenv": "^16.4.7",

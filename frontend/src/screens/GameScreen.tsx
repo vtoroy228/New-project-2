@@ -107,9 +107,9 @@ export const GameScreen = ({ active = true }: GameScreenProps) => {
     engineRef.current?.setSettings(settings);
     soundManager.setVolume(settings.volume);
     soundManager.setMusicEnabled(settings.musicEnabled);
-    if (settings.musicEnabled) {
-      void soundManager.startMusic();
-    } else {
+    // Avoid eager BGM download on initial screen load.
+    // Music starts on explicit user action (Play / music toggle).
+    if (!settings.musicEnabled) {
       soundManager.stopMusic();
     }
   }, [settings]);
