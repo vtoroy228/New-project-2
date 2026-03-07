@@ -73,6 +73,13 @@ interface GameScreenProps {
   active?: boolean;
 }
 
+interface ScoreSubmittedEventDetail {
+  userBestScore: number;
+  scoreAccepted: boolean;
+}
+
+const SCORE_SUBMITTED_EVENT = 'dino:score-submitted';
+
 export const GameScreen = ({ active = true }: GameScreenProps) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const canvasWrapperRef = useRef<HTMLDivElement | null>(null);
@@ -142,7 +149,7 @@ export const GameScreen = ({ active = true }: GameScreenProps) => {
           return;
         }
 
-        setServerBest(response.user.bestScore);
+        setServerBest((current) => Math.max(current, response.user.bestScore));
         setHasServerBest(true);
       } catch (error) {
         if (import.meta.env.DEV) {
@@ -223,8 +230,16 @@ export const GameScreen = ({ active = true }: GameScreenProps) => {
               if (response.scoreAccepted) {
                 setHasServerBest(true);
                 setServerBest((current) => Math.max(current, response.userBestScore));
-                window.dispatchEvent(new CustomEvent('dino:score-submitted'));
               }
+
+              window.dispatchEvent(
+                new CustomEvent<ScoreSubmittedEventDetail>(SCORE_SUBMITTED_EVENT, {
+                  detail: {
+                    userBestScore: response.userBestScore,
+                    scoreAccepted: response.scoreAccepted
+                  }
+                })
+              );
             } catch (error) {
               if (import.meta.env.DEV) {
                 console.info('[game] failed to submit result', error);
@@ -310,7 +325,7 @@ export const GameScreen = ({ active = true }: GameScreenProps) => {
   };
 
   const sliderValue = Math.round(settings.volume * 100);
-  const hiScore = hasServerBest ? serverBest : Math.max(localBest, serverBest);
+  const hiScore = Math.max(localBest, serverBest);
 
   return (
     <div className="screen-stack game-screen-stack">

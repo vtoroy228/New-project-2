@@ -15,6 +15,7 @@ import {
 } from '../services/telegram';
 
 type AuthViewState = 'loading' | 'authorized' | 'error';
+const SCORE_SUBMITTED_EVENT = 'dino:score-submitted';
 
 const devLog = (message: string, details?: Record<string, unknown>): void => {
   if (!import.meta.env.DEV) {
@@ -139,6 +140,9 @@ export const App = () => {
         void refreshUser();
       }
     };
+    const onScoreSubmitted = () => {
+      void refreshUser();
+    };
 
     const intervalId = window.setInterval(() => {
       void refreshUser();
@@ -146,12 +150,14 @@ export const App = () => {
 
     window.addEventListener('focus', onFocus);
     document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener(SCORE_SUBMITTED_EVENT, onScoreSubmitted);
 
     return () => {
       disposed = true;
       window.clearInterval(intervalId);
       window.removeEventListener('focus', onFocus);
       document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener(SCORE_SUBMITTED_EVENT, onScoreSubmitted);
     };
   }, [authState]);
 
