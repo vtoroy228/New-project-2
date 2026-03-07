@@ -39,7 +39,6 @@ export const submitGameResult = async (
   const sessionId = payload.sessionId?.slice(0, 128);
 
   const suspicious = isSuspiciousScore(score, playTime, obstacles);
-  let leaderboardChanged = false;
 
   if (sessionId) {
     const duplicate = await prisma.gameResult.findFirst({
@@ -63,9 +62,7 @@ export const submitGameResult = async (
     }
   }
 
-  const userBestScore = await prisma.$transaction(async (tx) => {
-    const user = await tx.user.findUniqueOrThrow({ where: { id: userId } });
-
+  const { userBestScore, leaderboardChanged } = await prisma.$transaction(async (tx) => {
     await tx.gameResult.create({
       data: {
         userId,
@@ -76,41 +73,51 @@ export const submitGameResult = async (
       }
     });
 
-    if (suspicious) {
-      const updated = await tx.user.update({
-        where: { id: userId },
-        data: {
-          totalGames: {
-            increment: 1
-          },
-          totalPlayTime: {
-            increment: playTime
-          }
-        }
-      });
-
-      return updated.bestScore;
-    }
-
-    const updated = await tx.user.update({
+    await tx.user.update({
       where: { id: userId },
       data: {
         totalGames: {
           increment: 1
         },
-        totalScore: {
-          increment: BigInt(score)
-        },
+        ...(suspicious
+          ? {}
+          : {
+              totalScore: {
+                increment: BigInt(score)
+              }
+            }),
         totalPlayTime: {
           increment: playTime
-        },
-        bestScore: Math.max(user.bestScore, score)
+        }
       }
     });
 
-    leaderboardChanged = score > user.bestScore;
+    let bestScoreChanged = false;
+    if (!suspicious) {
+      const promote = await tx.user.updateMany({
+        where: {
+          id: userId,
+          bestScore: {
+            lt: score
+          }
+        },
+        data: {
+          bestScore: score
+        }
+      });
 
-    return updated.bestScore;
+      bestScoreChanged = promote.count > 0;
+    }
+
+    const updated = await tx.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { bestScore: true }
+    });
+
+    return {
+      userBestScore: updated.bestScore,
+      leaderboardChanged: bestScoreChanged
+    };
   }).catch(async (error: unknown) => {
     const knownRequestError = error as { code?: string };
     if (sessionId && knownRequestError.code === 'P2002') {
@@ -118,7 +125,10 @@ export const submitGameResult = async (
         where: { id: userId },
         select: { bestScore: true }
       });
-      return user.bestScore;
+      return {
+        userBestScore: user.bestScore,
+        leaderboardChanged: false
+      };
     }
 
     throw error;

@@ -8,6 +8,9 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "admin:reset-leaderboard": "tsx src/scripts/resetLeaderboard.ts",
+    "admin:reset-leaderboard:dist": "node dist/scripts/resetLeaderboard.js",
+    "admin:rebuild-best-scores": "tsx src/scripts/rebuildBestScores.ts",
+    "admin:rebuild-best-scores:dist": "node dist/scripts/rebuildBestScores.js",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev"
   },

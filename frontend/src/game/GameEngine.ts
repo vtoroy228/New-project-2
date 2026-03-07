@@ -1,7 +1,9 @@
 import { soundManager } from './SoundManager';
 import { triggerJumpHaptic } from '../services/telegram';
 import { tokens } from '../ui/theme/tokens';
-import type { LoadedSkin, ObstacleCategory, SkinObstacle } from './SkinLoader';
+import { ChromeDinoRuntime } from './ChromeDinoRuntime';
+import type { RuntimeSpawnDecision } from './ChromeDinoRuntime';
+import type { LoadedSkin, SkinObstacle } from './SkinLoader';
 
 interface GameEngineSettings {
   volume: number;
@@ -31,7 +33,7 @@ interface GameEngineOptions {
 
 interface ObstacleInstance {
   type: SkinObstacle;
-  image: HTMLImageElement;
+  sprite: CanvasImageSource;
   x: number;
   y: number;
   width: number;
@@ -49,8 +51,6 @@ interface Actor {
 
 const WORLD_WIDTH = 500;
 const WORLD_HEIGHT = 300;
-const SPEED_LIMIT_FACTOR = 2.2;
-const MIN_INTER_OBSTACLE_GAP = 58;
 
 export const getDefaultSettings = (): GameEngineSettings => {
   return {
@@ -63,28 +63,24 @@ export class GameEngine {
   private readonly canvas: HTMLCanvasElement;
   private readonly context: CanvasRenderingContext2D;
   private readonly skin: LoadedSkin;
+  private readonly runtime: ChromeDinoRuntime;
   private readonly onTick?: (snapshot: GameTickSnapshot) => void;
   private readonly onGameOver?: (snapshot: GameOverSnapshot) => void;
+
+  private readonly dinoSprite: CanvasImageSource;
+  private readonly obstacleSprites: Record<string, CanvasImageSource>;
 
   private settings: GameEngineSettings;
   private dino: Actor;
   private obstacles: ObstacleInstance[] = [];
+  private obstaclePool: ObstacleInstance[] = [];
   private running = false;
-  private speed: number;
+  private speed = 0;
   private score = 0;
   private obstaclesPassed = 0;
   private playTime = 0;
   private startTimestamp = 0;
   private lastTimestamp = 0;
-  private nextSpawnDistance = 0;
-  private pendingCluster = 0;
-  private pendingClusterTypeId: string | null = null;
-  private lastSpawnCategory: ObstacleCategory | null = null;
-  private lastSpawnTypeId: string | null = null;
-  private obstacleHistory: string[] = [];
-  private lastGapWasTight = false;
-  private tightGapStreak = 0;
-  private spawnCooldown = 0;
   private rafId = 0;
 
   private readonly keydownHandler = (event: KeyboardEvent) => {
@@ -107,10 +103,23 @@ export class GameEngine {
 
     this.context = context;
     this.skin = options.skin;
+    this.runtime = new ChromeDinoRuntime(this.skin.manifest.physics, this.skin.manifest.obstacles);
     this.settings = options.settings;
     this.onTick = options.onTick;
     this.onGameOver = options.onGameOver;
-    this.speed = this.skin.manifest.physics.initialSpeed;
+
+    this.dinoSprite = this.createCachedSprite(
+      this.skin.dinoImage,
+      this.skin.manifest.dino.width,
+      this.skin.manifest.dino.height
+    );
+
+    this.obstacleSprites = Object.fromEntries(
+      this.skin.manifest.obstacles.map((obstacle) => {
+        const image = this.skin.obstacleImages[obstacle.id];
+        return [obstacle.id, this.createCachedSprite(image, obstacle.width, obstacle.height)] as const;
+      })
+    );
 
     this.dino = {
       x: 38,
@@ -165,6 +174,25 @@ export class GameEngine {
     this.start();
   }
 
+  private createCachedSprite(
+    source: HTMLImageElement,
+    targetWidth: number,
+    targetHeight: number
+  ): CanvasImageSource {
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(targetWidth));
+    canvas.height = Math.max(1, Math.round(targetHeight));
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      return source;
+    }
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(source, 0, 0, canvas.width, canvas.height);
+    return canvas;
+  }
+
   private start(): void {
     this.resetState();
     this.running = true;
@@ -192,20 +220,17 @@ export class GameEngine {
   }
 
   private resetState(): void {
-    this.speed = this.skin.manifest.physics.initialSpeed;
+    this.runtime.reset();
+    this.speed = this.runtime.getWorldSpeed();
     this.score = 0;
     this.obstaclesPassed = 0;
     this.playTime = 0;
-    this.obstacles = [];
-    this.lastSpawnCategory = null;
-    this.lastSpawnTypeId = null;
-    this.obstacleHistory = [];
-    this.lastGapWasTight = false;
-    this.tightGapStreak = 0;
-    this.pendingCluster = 0;
-    this.pendingClusterTypeId = null;
-    this.spawnCooldown = 0;
-    this.nextSpawnDistance = this.skin.manifest.physics.minObstacleGap * 1.35;
+
+    for (const obstacle of this.obstacles) {
+      this.obstaclePool.push(obstacle);
+    }
+    this.obstacles.length = 0;
+
     this.dino.velocityY = 0;
     this.dino.y = this.groundY - this.dino.height;
 
@@ -254,10 +279,10 @@ export class GameEngine {
 
   private update(deltaSeconds: number): void {
     const physics = this.skin.manifest.physics;
-
     this.playTime = (performance.now() - this.startTimestamp) / 1000;
-    const speedLimit = physics.initialSpeed * SPEED_LIMIT_FACTOR;
-    this.speed = Math.min(speedLimit, this.speed + physics.speedAcceleration * deltaSeconds);
+
+    const runtimeTick = this.runtime.tick(deltaSeconds);
+    this.speed = runtimeTick.worldSpeed;
 
     this.dino.velocityY += physics.gravity * deltaSeconds;
     this.dino.y += this.dino.velocityY * deltaSeconds;
@@ -267,24 +292,18 @@ export class GameEngine {
       this.dino.velocityY = 0;
     }
 
-    this.obstacles = this.obstacles
-      .map((obstacle) => ({
-        ...obstacle,
-        x: obstacle.x - this.speed * deltaSeconds
-      }))
-      .filter((obstacle) => obstacle.x + obstacle.width > -30);
+    const moveBy = this.speed * deltaSeconds;
+    let writeIndex = 0;
 
-    this.nextSpawnDistance -= this.speed * deltaSeconds;
-    while (this.nextSpawnDistance <= 0) {
-      const type = this.pickObstacleType();
-      this.spawnObstacle(type);
-      this.nextSpawnDistance +=
-        this.pendingCluster > 0 && this.pendingClusterTypeId === type.id
-          ? this.getClusterGap(type)
-          : this.computeSpawnGap(type);
-    }
+    for (let readIndex = 0; readIndex < this.obstacles.length; readIndex += 1) {
+      const obstacle = this.obstacles[readIndex]!;
+      obstacle.x -= moveBy;
 
-    for (const obstacle of this.obstacles) {
+      if (obstacle.x + obstacle.width <= -30) {
+        this.obstaclePool.push(obstacle);
+        continue;
+      }
+
       if (!obstacle.passed && obstacle.x + obstacle.width < this.dino.x) {
         obstacle.passed = true;
         this.obstaclesPassed += 1;
@@ -294,6 +313,15 @@ export class GameEngine {
         this.finishGame();
         return;
       }
+
+      this.obstacles[writeIndex] = obstacle;
+      writeIndex += 1;
+    }
+
+    this.obstacles.length = writeIndex;
+
+    for (const decision of runtimeTick.spawns) {
+      this.spawnObstacleGroup(decision);
     }
 
     this.score = Math.floor(
@@ -308,190 +336,36 @@ export class GameEngine {
     });
   }
 
-  private computeSpawnGap(type: SkinObstacle): number {
-    const { minObstacleGap, maxObstacleGap, initialSpeed } = this.skin.manifest.physics;
+  private spawnObstacleGroup(decision: RuntimeSpawnDecision): void {
+    const sprite = this.obstacleSprites[decision.type.id] ?? this.skin.obstacleImages[decision.type.id];
 
-    const speedCoefficient = Math.max(1, this.speed / initialSpeed);
-    const tunedMinGap = Math.max(minObstacleGap, type.minGap ?? minObstacleGap);
-    const tunedMaxGap = Math.max(maxObstacleGap, tunedMinGap + 60);
+    for (let index = 0; index < decision.clusterCount; index += 1) {
+      const x = WORLD_WIDTH + 20 + index * (decision.type.width + decision.clusterSpacing);
+      const yOffset = decision.flyingYOffset ?? decision.type.yOffset ?? 0;
 
-    const min = tunedMinGap * speedCoefficient;
-    const max = tunedMaxGap * speedCoefficient;
-    let gap = min + Math.random() * (max - min);
-
-    // Chromium-like pace: obstacle width and speed both increase reaction gap.
-    gap += type.width * (0.85 + speedCoefficient * 0.3);
-
-    if (type.category === 'flying') {
-      gap += 94;
-    }
-
-    if (this.lastSpawnCategory === 'flying' || this.lastSpawnCategory === 'high') {
-      gap += 56;
-    }
-
-    if (this.lastGapWasTight) {
-      gap += 24 + this.tightGapStreak * 16;
-    }
-
-    this.lastGapWasTight = gap < min + 45;
-    this.tightGapStreak = this.lastGapWasTight ? Math.min(3, this.tightGapStreak + 1) : 0;
-    return Math.max(MIN_INTER_OBSTACLE_GAP, gap);
-  }
-
-  private pickObstacleType(): SkinObstacle {
-    const clusterObstacle = this.pickClusterObstacle();
-    if (clusterObstacle) {
-      return clusterObstacle;
-    }
-
-    const obstacles = this.skin.manifest.obstacles;
-    const initialSpeed = this.skin.manifest.physics.initialSpeed;
-
-    let candidates = obstacles.filter((obstacle) => {
-      if (obstacle.minSpeed !== undefined && this.speed < obstacle.minSpeed) {
-        return false;
+      const obstacle = this.obstaclePool.pop();
+      if (obstacle) {
+        obstacle.type = decision.type;
+        obstacle.sprite = sprite;
+        obstacle.x = x;
+        obstacle.y = this.groundY - decision.type.height - yOffset;
+        obstacle.width = decision.type.width;
+        obstacle.height = decision.type.height;
+        obstacle.passed = false;
+        this.obstacles.push(obstacle);
+        continue;
       }
 
-      if (obstacle.category === 'flying' && (obstacle.yOffset ?? 0) < 56) {
-        return false;
-      }
-
-      if (this.spawnCooldown > 0 && obstacle.category === 'flying') {
-        return false;
-      }
-
-      if (this.speed < initialSpeed * 1.08 && obstacle.category === 'flying') {
-        return false;
-      }
-
-      if (this.lastSpawnCategory === 'flying' && obstacle.category === 'flying') {
-        return false;
-      }
-
-      if (this.lastSpawnCategory === 'high' && obstacle.category === 'high') {
-        return false;
-      }
-
-      if (this.isDuplicateObstacle(obstacle.id)) {
-        return false;
-      }
-
-      return true;
-    });
-
-    if (candidates.length === 0) {
-      candidates = obstacles;
+      this.obstacles.push({
+        type: decision.type,
+        sprite,
+        x,
+        y: this.groundY - decision.type.height - yOffset,
+        width: decision.type.width,
+        height: decision.type.height,
+        passed: false
+      });
     }
-
-    const weighted = candidates.flatMap((obstacle) => {
-      if (obstacle.category === 'low') {
-        return [obstacle, obstacle, obstacle];
-      }
-
-      if (obstacle.category === 'flying') {
-        return this.speed > initialSpeed * 1.12 ? [obstacle] : [];
-      }
-
-      return [obstacle];
-    });
-
-    const pool = weighted.length > 0 ? weighted : candidates;
-    const selected = pool[Math.floor(Math.random() * pool.length)] ?? pool[0];
-
-    if (selected.category === 'flying' || selected.category === 'high') {
-      this.spawnCooldown = 2;
-    } else if (this.spawnCooldown > 0) {
-      this.spawnCooldown -= 1;
-    }
-
-    this.lastSpawnCategory = selected.category;
-    this.lastSpawnTypeId = selected.id;
-    this.obstacleHistory.unshift(selected.id);
-    if (this.obstacleHistory.length > 2) {
-      this.obstacleHistory.splice(2);
-    }
-
-    return selected;
-  }
-
-  private createCluster(type: SkinObstacle): void {
-    if (type.category === 'flying') {
-      this.pendingCluster = 0;
-      this.pendingClusterTypeId = null;
-      return;
-    }
-
-    const clusterAllowed =
-      type.multipleSpeed !== undefined &&
-      this.speed >= type.multipleSpeed &&
-      this.lastSpawnCategory !== 'flying' &&
-      Math.random() > 0.62;
-
-    if (!clusterAllowed) {
-      this.pendingCluster = 0;
-      this.pendingClusterTypeId = null;
-      return;
-    }
-
-    this.pendingCluster = Math.random() > 0.6 ? 2 : 1;
-    this.pendingClusterTypeId = type.id;
-  }
-
-  private getClusterGap(type: SkinObstacle): number {
-    const speedCoefficient = Math.max(1, this.speed / this.skin.manifest.physics.initialSpeed);
-    const base = type.width * (0.42 + speedCoefficient * 0.12);
-    return Math.max(MIN_INTER_OBSTACLE_GAP, base + Math.random() * 28);
-  }
-
-  private pickClusterObstacle(): SkinObstacle | null {
-    if (this.pendingCluster <= 0 || !this.pendingClusterTypeId) {
-      return null;
-    }
-
-    const type =
-      this.skin.manifest.obstacles.find((obstacle) => obstacle.id === this.pendingClusterTypeId) ?? null;
-
-    if (!type) {
-      this.pendingCluster = 0;
-      this.pendingClusterTypeId = null;
-      return null;
-    }
-
-    this.pendingCluster -= 1;
-    if (this.pendingCluster <= 0) {
-      this.pendingClusterTypeId = null;
-    }
-
-    this.lastSpawnCategory = type.category;
-    this.lastSpawnTypeId = type.id;
-    return type;
-  }
-
-  private isDuplicateObstacle(nextId: string): boolean {
-    let duplicateCount = 0;
-    for (const obstacleId of this.obstacleHistory) {
-      duplicateCount = obstacleId === nextId ? duplicateCount + 1 : 0;
-    }
-
-    return duplicateCount >= 2;
-  }
-
-  private spawnObstacle(type: SkinObstacle): void {
-    const image = this.skin.obstacleImages[type.id];
-
-    const obstacle: ObstacleInstance = {
-      type,
-      image,
-      x: WORLD_WIDTH + 20,
-      y: this.groundY - type.height - (type.yOffset ?? 0),
-      width: type.width,
-      height: type.height,
-      passed: false
-    };
-
-    this.obstacles.push(obstacle);
-    this.createCluster(type);
   }
 
   private checkCollision(obstacle: ObstacleInstance): boolean {
@@ -550,20 +424,11 @@ export class GameEngine {
     ctx.fillStyle = tokens.colors.canvasGround;
     ctx.fillRect(0, this.groundY, WORLD_WIDTH, WORLD_HEIGHT - this.groundY);
 
-    for (const obstacle of this.obstacles) {
-      if (obstacle.image.complete) {
-        ctx.drawImage(obstacle.image, obstacle.x, obstacle.y, obstacle.width, obstacle.height);
-      } else {
-        ctx.fillStyle = tokens.colors.canvasObstacle;
-        ctx.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
-      }
+    for (let i = 0; i < this.obstacles.length; i += 1) {
+      const obstacle = this.obstacles[i]!;
+      ctx.drawImage(obstacle.sprite, obstacle.x, obstacle.y, obstacle.width, obstacle.height);
     }
 
-    if (this.skin.dinoImage.complete) {
-      ctx.drawImage(this.skin.dinoImage, this.dino.x, this.dino.y, this.dino.width, this.dino.height);
-    } else {
-      ctx.fillStyle = tokens.colors.canvasObstacle;
-      ctx.fillRect(this.dino.x, this.dino.y, this.dino.width, this.dino.height);
-    }
+    ctx.drawImage(this.dinoSprite, this.dino.x, this.dino.y, this.dino.width, this.dino.height);
   }
 }

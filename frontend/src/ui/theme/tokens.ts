@@ -4,7 +4,7 @@ export const tokens = {
     settingsTitle: 'настройки'
   },
   colors: {
-    background: '#CDFF3B',
+    background: '#ff3b3b',
     card: '#FFFFFF',
     cardMuted: '#F3F5FF',
     accentMagenta: '#FF2D9B',

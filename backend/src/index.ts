@@ -8,6 +8,7 @@ import { adminRoutes } from './routes/admin';
 import { authRoutes } from './routes/auth';
 import { gameRoutes } from './routes/game';
 import { leaderboardRoutes } from './routes/leaderboard';
+import { startBestScoreReconciler, stopBestScoreReconciler } from './services/bestScoreReconciler';
 
 dotenv.config({ path: path.resolve(process.cwd(), '.env') });
 dotenv.config({ path: path.resolve(process.cwd(), '../.env') });
@@ -72,6 +73,7 @@ app.setNotFoundHandler(async (request, reply) => {
 });
 
 app.addHook('onClose', async () => {
+  stopBestScoreReconciler();
   await prisma.$disconnect();
 });
 
@@ -81,6 +83,7 @@ const start = async (): Promise<void> => {
 
   try {
     await app.listen({ port, host });
+    startBestScoreReconciler(app.log);
     app.log.info(`Server started on http://${host}:${port}`);
   } catch (error) {
     app.log.error(error);

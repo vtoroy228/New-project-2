@@ -58,6 +58,18 @@ export const bootstrapTelegram = (): TelegramBootstrapState => {
     return state;
   }
 
+  if (isTelegramWebApp && initData.length === 0 && DEV_MOCK_ENABLED) {
+    const state: TelegramBootstrapState = {
+      isTelegramWebApp,
+      mode: 'mock',
+      initData: 'dev-mock',
+      error: null
+    };
+
+    devLog('telegram webapp without initData, using dev mock', { initDataLength: 0, mode: 'mock' });
+    return state;
+  }
+
   if (isTelegramWebApp && initData.length === 0) {
     const state: TelegramBootstrapState = {
       isTelegramWebApp,
