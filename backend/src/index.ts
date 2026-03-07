@@ -2,8 +2,8 @@ import path from 'node:path';
 import { existsSync } from 'node:fs';
 import dotenv from 'dotenv';
 import fastify from 'fastify';
-import fastifyCompress from '@fastify/compress';
 import fastifyStatic from '@fastify/static';
+import type { FastifyPluginCallback, FastifyPluginOptions } from 'fastify';
 import { prisma } from './db/prisma';
 import { adminRoutes } from './routes/admin';
 import { authRoutes } from './routes/auth';
@@ -77,6 +77,19 @@ const app = fastify({
   maxParamLength: 200
 });
 
+let fastifyCompressPlugin: FastifyPluginCallback<FastifyPluginOptions> | null = null;
+try {
+  const required = require('@fastify/compress') as
+    | FastifyPluginCallback<FastifyPluginOptions>
+    | { default: FastifyPluginCallback<FastifyPluginOptions> };
+  fastifyCompressPlugin =
+    typeof required === 'function'
+      ? required
+      : required.default;
+} catch {
+  fastifyCompressPlugin = null;
+}
+
 let shuttingDown = false;
 
 app.get('/healthz', async () => {
@@ -102,11 +115,15 @@ app.get('/readyz', async (request, reply) => {
   }
 });
 
-app.register(fastifyCompress, {
-  global: true,
-  threshold: 1024,
-  encodings: ['br', 'gzip', 'deflate']
-});
+if (fastifyCompressPlugin) {
+  app.register(fastifyCompressPlugin, {
+    global: true,
+    threshold: 1024,
+    encodings: ['br', 'gzip', 'deflate']
+  });
+} else {
+  app.log.warn('[startup] @fastify/compress is not installed, continuing without response compression');
+}
 
 app.register(authRoutes, { prefix: '/api/auth' });
 app.register(gameRoutes, { prefix: '/api/game' });
