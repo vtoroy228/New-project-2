@@ -21,6 +21,7 @@ export const TabBar = <T extends string>({ tabs, activeTab, onChange }: TabBarPr
           key={tab.id}
           className={`tab-item ${activeTab === tab.id ? 'tab-item-active' : ''}`}
           onClick={() => onChange(tab.id)}
+          aria-current={activeTab === tab.id ? 'page' : undefined}
         >
           <span className="tab-icon" aria-hidden>
             {tab.icon}

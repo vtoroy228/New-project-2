@@ -1,58 +1,58 @@
 export const tokens = {
   app: {
-    eventName: 'NEON DINO CUP',
+    eventName: 'csfest telegram cup',
     settingsTitle: 'настройки'
   },
   colors: {
-    background: '#ff3b3b',
-    card: '#FFFFFF',
-    cardMuted: '#F3F5FF',
-    accentMagenta: '#FF2D9B',
-    accentLime: '#CDFF3B',
-    accentBlue: '#73A7FF',
-    textDark: '#111321',
-    textMuted: '#5C6073',
-    successGreen: '#00A357',
-    borderSoft: '#E2E6FF',
-    overlay: 'rgba(17, 19, 33, 0.35)',
-    canvasSky: '#F7FFE2',
-    canvasGround: '#B5DE2D',
-    canvasObstacle: '#1E2438'
+    background: '#d9d9d9',
+    card: '#f3f3f3',
+    cardMuted: '#ffffff',
+    accentMagenta: '#e86173',
+    accentLime: '#45a62a',
+    accentBlue: '#005ee8',
+    textDark: '#0f0f0f',
+    textMuted: '#3f3f3f',
+    successGreen: '#0f6d18',
+    borderSoft: '#000000',
+    overlay: 'rgba(0, 0, 0, 0.35)',
+    canvasSky: '#227a11',
+    canvasGround: '#3cab28',
+    canvasObstacle: '#0f2a10'
   },
   spacing: {
     xxs: 4,
-    xs: 8,
-    sm: 12,
-    md: 16,
-    lg: 20,
-    xl: 24,
-    xxl: 32
+    xs: 6,
+    sm: 10,
+    md: 14,
+    lg: 18,
+    xl: 22,
+    xxl: 28
   },
   radius: {
-    sm: 12,
-    md: 18,
-    lg: 24,
-    xl: 30,
+    sm: 0,
+    md: 2,
+    lg: 4,
+    xl: 6,
     full: 999
   },
   shadow: {
-    card: '0 14px 24px rgba(17, 19, 33, 0.12)',
-    floating: '0 8px 18px rgba(17, 19, 33, 0.22)'
+    card: 'none',
+    floating: 'none'
   },
   typography: {
-    fontFamily: '"Trigram", "Trebuchet MS", "Arial", sans-serif',
-    sizeXs: 12,
-    sizeSm: 14,
-    sizeMd: 16,
-    sizeLg: 22,
-    sizeXl: 32,
+    fontFamily: '"Trigram", "Courier New", monospace',
+    sizeXs: 11,
+    sizeSm: 13,
+    sizeMd: 15,
+    sizeLg: 20,
+    sizeXl: 28,
     weightRegular: 500,
     weightBold: 700
   },
   layout: {
-    maxWidth: 560,
-    headerHeight: 80,
-    tabBarHeight: 92
+    maxWidth: 520,
+    headerHeight: 70,
+    tabBarHeight: 58
   }
 } as const;
 

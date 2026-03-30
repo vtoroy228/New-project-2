@@ -1,13 +1,13 @@
 {
   "physics": {
     "gravity": 1950,
-    "jumpVelocity": 740,
+    "jumpVelocity": 650,
     "scorePerSecond": 12,
     "scorePerObstacle": 45,
     "groundOffset": 40
   },
   "dino": {
-    "sprite": "dino.svg",
+    "sprite": "dino.png",
     "width": 54,
     "height": 58,
     "hitbox": {
@@ -21,7 +21,7 @@
     {
       "id": "cactus",
       "category": "high",
-      "sprite": "cactus.svg",
+      "sprite": "cactus.png",
       "width": 32,
       "height": 58,
       "minGap": 150,
@@ -37,7 +37,7 @@
     {
       "id": "rock",
       "category": "low",
-      "sprite": "rock.svg",
+      "sprite": "rock.png",
       "width": 42,
       "height": 26,
       "minGap": 190,
@@ -53,7 +53,7 @@
     {
       "id": "drone",
       "category": "flying",
-      "sprite": "drone.svg",
+      "sprite": "drone.png",
       "width": 50,
       "height": 32,
       "minGap": 220,

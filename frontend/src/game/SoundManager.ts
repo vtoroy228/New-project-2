@@ -1,9 +1,19 @@
 type SoundName = 'jump' | 'fireworks' | 'bgm';
 
+const AUDIO_CACHE_BUSTER =
+  typeof __AUDIO_CACHE_BUSTER__ === 'string' && __AUDIO_CACHE_BUSTER__.length > 0
+    ? __AUDIO_CACHE_BUSTER__
+    : '0';
+
+const withAudioVersion = (assetPath: string): string => {
+  const separator = assetPath.includes('?') ? '&' : '?';
+  return `${assetPath}${separator}v=${encodeURIComponent(AUDIO_CACHE_BUSTER)}`;
+};
+
 const SOUND_SOURCES: Record<SoundName, string> = {
-  jump: '/assets/sounds/jump.mp3',
-  fireworks: '/assets/sounds/fireworks.mp3',
-  bgm: '/assets/sounds/bgm.mp3'
+  jump: withAudioVersion('/assets/sounds/jump.mp3'),
+  fireworks: withAudioVersion('/assets/sounds/fireworks.mp3'),
+  bgm: withAudioVersion('/assets/sounds/bgm.mp3')
 };
 
 const clampVolume = (value: number): number => {

@@ -196,7 +196,9 @@ export const App = () => {
   if (authState === 'loading') {
     return (
       <div className="app-shell">
-        <main className="app-content app-centered">Подключение...</main>
+        <div className="app-console">
+          <main className="app-content app-centered">Подключение...</main>
+        </div>
       </div>
     );
   }
@@ -204,68 +206,81 @@ export const App = () => {
   if (authState === 'error') {
     return (
       <div className="app-shell">
-        <header className="app-header">
-          <button type="button" className="icon-button" onClick={closeTelegramApp} aria-label="Close app">
-            ✕
-          </button>
-          <div className="header-user">
-            <span className="header-avatar">!</span>
-            <span className="header-name">Ошибка авторизации</span>
-          </div>
-          <span className="icon-button icon-button-placeholder" aria-hidden>
-            ·
-          </span>
-        </header>
+        <div className="app-console">
+          <header className="app-header">
+            <button
+              type="button"
+              className="icon-button icon-button-close"
+              onClick={closeTelegramApp}
+              aria-label="Close app"
+            >
+              ✕
+            </button>
+            <div className="header-user">
+              <span className="header-name">Ошибка авторизации</span>
+            </div>
+            <span className="icon-button icon-button-placeholder" aria-hidden />
+          </header>
 
-        <main className="app-content app-centered">
-          <div className="card auth-error-card">{authError ?? 'Ошибка авторизации'}</div>
-        </main>
+          <main className="app-content app-centered">
+            <div className="card auth-error-card">{authError ?? 'Ошибка авторизации'}</div>
+          </main>
+        </div>
       </div>
     );
   }
 
   return (
     <div className="app-shell">
-      <header className="app-header">
-        <button type="button" className="icon-button" onClick={closeTelegramApp} aria-label="Close app">
-          ✕
-        </button>
+      <div className="app-console">
+        <header className="app-header">
+          <button
+            type="button"
+            className="icon-button icon-button-close"
+            onClick={closeTelegramApp}
+            aria-label="Close app"
+          >
+            ✕
+          </button>
 
-        <div className="header-user">
-          <span className="header-avatar">
-            {avatarUrl ? (
-              <img className="header-avatar-image" src={avatarUrl} alt={headerName} />
-            ) : (
-              avatarFallback
-            )}
-          </span>
-          <span className="header-name">{headerName}</span>
-        </div>
+          <div className="header-user">
+            <span className="header-avatar">
+              {avatarUrl ? (
+                <img className="header-avatar-image" src={avatarUrl} alt={headerName} />
+              ) : (
+                avatarFallback
+              )}
+            </span>
+            <span className="header-name">{headerName}</span>
+          </div>
 
-        <button type="button" className="icon-button" aria-label="Menu">
-          ⋯
-        </button>
-      </header>
+          <span className="icon-button icon-button-placeholder" aria-hidden />
+        </header>
 
-      <main className="app-content">
-        {mountedTabs.leaderboard ? (
-          <section className={`tab-panel ${activeTab === 'leaderboard' ? '' : 'tab-panel-hidden'}`}>
-            <LeaderboardScreen active={activeTab === 'leaderboard'} />
+        <main className="app-content">
+          <section className="tab-stage" aria-live="polite">
+            {mountedTabs.leaderboard ? (
+              <section className={`tab-panel ${activeTab === 'leaderboard' ? '' : 'tab-panel-hidden'}`}>
+                <LeaderboardScreen active={activeTab === 'leaderboard'} />
+              </section>
+            ) : null}
+            {mountedTabs.game ? (
+              <section className={`tab-panel ${activeTab === 'game' ? '' : 'tab-panel-hidden'}`}>
+                <GameScreen active={activeTab === 'game'} />
+              </section>
+            ) : null}
+            {mountedTabs.profile ? (
+              <section className={`tab-panel ${activeTab === 'profile' ? '' : 'tab-panel-hidden'}`}>
+                <ProfileScreen active={activeTab === 'profile'} />
+              </section>
+            ) : null}
           </section>
-        ) : null}
-        {mountedTabs.game ? (
-          <section className={`tab-panel ${activeTab === 'game' ? '' : 'tab-panel-hidden'}`}>
-            <GameScreen active={activeTab === 'game'} />
-          </section>
-        ) : null}
-        {mountedTabs.profile ? (
-          <section className={`tab-panel ${activeTab === 'profile' ? '' : 'tab-panel-hidden'}`}>
-            <ProfileScreen active={activeTab === 'profile'} />
-          </section>
-        ) : null}
-      </main>
 
-      <TabBar tabs={APP_TABS} activeTab={activeTab} onChange={setActiveTab} />
+          <section className="shell-panel shell-panel-bottom" aria-label="Navigation">
+            <TabBar tabs={APP_TABS} activeTab={activeTab} onChange={setActiveTab} />
+          </section>
+        </main>
+      </div>
     </div>
   );
 };

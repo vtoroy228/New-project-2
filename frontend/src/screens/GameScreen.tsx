@@ -307,7 +307,7 @@ export const GameScreen = ({ active = true }: GameScreenProps) => {
 
   const startLabel = useMemo(() => {
     if (score > 0 && !isRunning) {
-      return 'ЕЩЁ РАЗ';
+      return 'RESTART';
     }
 
     return 'PLAY';
@@ -326,6 +326,7 @@ export const GameScreen = ({ active = true }: GameScreenProps) => {
 
   const sliderValue = Math.round(settings.volume * 100);
   const hiScore = Math.max(localBest, serverBest);
+  const musicLabel = settings.musicEnabled ? '♫' : '♪';
 
   return (
     <div className="screen-stack game-screen-stack">
@@ -351,12 +352,6 @@ export const GameScreen = ({ active = true }: GameScreenProps) => {
           <canvas ref={canvasRef} className="game-canvas" />
           <ConfettiOverlay visible={confettiVisible && !isRunning} />
 
-          {!isRunning && skinReady ? (
-            <button type="button" className="play-overlay-button" onClick={handleStart}>
-              {startLabel}
-            </button>
-          ) : null}
-
           {!skinReady ? (
             <div className="game-loading-overlay">
               <span>{skinLoadError ?? 'Загрузка игры...'}</span>
@@ -371,10 +366,17 @@ export const GameScreen = ({ active = true }: GameScreenProps) => {
               ) : null}
             </div>
           ) : null}
+        </div>
+      </Card>
 
-          <button
-            type="button"
-            className={`music-fab ${settings.musicEnabled ? 'music-fab-on' : ''}`}
+      <Card className="game-controls-card">
+        <div className="game-controls-row">
+          <Button className="game-control-button game-control-primary" onClick={handleStart} disabled={!skinReady}>
+            {startLabel}
+          </Button>
+          <Button
+            className={`game-control-button game-control-utility ${settings.musicEnabled ? 'game-control-utility-active' : ''}`}
+            variant="ghost"
             onClick={() => {
               setSettings((current) => {
                 const next = !current.musicEnabled;
@@ -389,19 +391,19 @@ export const GameScreen = ({ active = true }: GameScreenProps) => {
                 };
               });
             }}
-            aria-label={settings.musicEnabled ? 'Disable music' : 'Enable music'}
+            aria-label={settings.musicEnabled ? 'Mute music' : 'Enable music'}
+            aria-pressed={settings.musicEnabled}
           >
-            {settings.musicEnabled ? '♫' : '♫×'}
-          </button>
-
-          <button
-            type="button"
-            className="settings-fab"
+            {musicLabel}
+          </Button>
+          <Button
+            className="game-control-button game-control-utility"
+            variant="ghost"
             onClick={() => setSettingsOpen(true)}
             aria-label="Open settings"
           >
             ⚙
-          </button>
+          </Button>
         </div>
       </Card>
 

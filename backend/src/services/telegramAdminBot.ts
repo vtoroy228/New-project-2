@@ -177,6 +177,23 @@ const toTelegramApiUrl = (botToken: string, method: string): string => {
   return `https://api.telegram.org/bot${botToken}/${method}`;
 };
 
+const toErrorLogPayload = (error: unknown): Record<string, unknown> => {
+  if (error instanceof Error) {
+    const errorWithCode = error as Error & { code?: number | string };
+    return {
+      err: error,
+      errorName: error.name,
+      errorMessage: error.message,
+      errorCode: errorWithCode.code
+    };
+  }
+
+  return {
+    errorValue: error,
+    errorMessage: String(error)
+  };
+};
+
 const callTelegramApi = async <T>(
   botToken: string,
   method: string,
@@ -495,7 +512,13 @@ const handleUpdate = async (
   try {
     await handleAdminCommand(botToken, hiddenCommand, message);
   } catch (error) {
-    logger.error({ error, adminTelegramId: from.id }, '[admin-bot] command failed');
+    logger.error(
+      {
+        ...toErrorLogPayload(error),
+        adminTelegramId: from.id
+      },
+      '[admin-bot] command failed'
+    );
     await sendMessage(botToken, message.chat.id, 'Ошибка выполнения команды. Проверьте формат данных и попробуйте снова.');
   }
 };
@@ -565,7 +588,7 @@ export const startTelegramAdminBot = async (logger: BotLogger): Promise<void> =>
     );
   } catch (error) {
     running = false;
-    logger.error({ error }, '[admin-bot] failed to initialize');
+    logger.error(toErrorLogPayload(error), '[admin-bot] failed to initialize');
     return;
   }
 
@@ -603,7 +626,7 @@ export const startTelegramAdminBot = async (logger: BotLogger): Promise<void> =>
           '[admin-bot] getUpdates conflict (409). Disable webhook for this token or keep bot polling disabled.'
         );
       } else {
-        logger.error({ error }, '[admin-bot] polling failed');
+        logger.error(toErrorLogPayload(error), '[admin-bot] polling failed');
       }
 
       scheduleNextPoll(poll, 2000);

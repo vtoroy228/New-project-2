@@ -7,6 +7,8 @@ interface TelegramWebAppUser {
   is_premium?: boolean;
 }
 
+declare const __AUDIO_CACHE_BUSTER__: string;
+
 interface TelegramWebApp {
   initData: string;
   initDataUnsafe: {
