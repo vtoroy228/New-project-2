@@ -291,7 +291,7 @@ export class GameEngine {
     const physics = this.skin.manifest.physics;
     this.playTime = (performance.now() - this.startTimestamp) / 1000;
 
-    const runtimeTick = this.runtime.tick(deltaSeconds);
+    const runtimeTick = this.runtime.tick(deltaSeconds, this.score);
     this.speed = runtimeTick.worldSpeed;
 
     this.dino.velocityY += physics.gravity * deltaSeconds;

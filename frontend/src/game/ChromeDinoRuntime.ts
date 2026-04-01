@@ -56,6 +56,8 @@ const randomFrom = <T>(items: readonly T[]): T => {
   return items[Math.floor(Math.random() * items.length)]!;
 };
 
+const CLUSTER_UNLOCK_SCORE = 1000;
+
 export class ChromeDinoRuntime {
   private readonly obstacleMetas: ObstacleMeta[];
 
@@ -92,7 +94,7 @@ export class ChromeDinoRuntime {
     return this.chromeSpeed * WORLD_SPEED_SCALE;
   }
 
-  tick(deltaSeconds: number): RuntimeTickSnapshot {
+  tick(deltaSeconds: number, currentScore = 0): RuntimeTickSnapshot {
     const deltaMs = deltaSeconds * 1000;
 
     this.chromeSpeed = Math.min(MAX_SPEED, this.chromeSpeed + ACCELERATION * deltaMs);
@@ -106,7 +108,7 @@ export class ChromeDinoRuntime {
 
     // Keep Chrome-like pacing: never spawn a burst of obstacles in one frame.
     if (this.nextSpawnTimerMs <= 0) {
-      const decision = this.createSpawnDecision();
+      const decision = this.createSpawnDecision(currentScore);
       spawns.push(decision);
 
       this.commitPattern(decision.type, decision.clusterCount);
@@ -159,9 +161,9 @@ export class ChromeDinoRuntime {
     ];
   }
 
-  private createSpawnDecision(): RuntimeSpawnDecision {
+  private createSpawnDecision(currentScore: number): RuntimeSpawnDecision {
     const selectedType = this.pickObstacleType();
-    const clusterCount = this.pickClusterCount(selectedType);
+    const clusterCount = this.pickClusterCount(selectedType, currentScore);
     const flyingHeightIndex =
       selectedType.category === 'flying' ? this.pickFlyingHeight() : null;
 
@@ -218,8 +220,12 @@ export class ChromeDinoRuntime {
     return 2;
   }
 
-  private pickClusterCount(type: ObstacleMeta): number {
+  private pickClusterCount(type: ObstacleMeta, currentScore: number): number {
     if (type.category === 'flying') {
+      return 1;
+    }
+
+    if (currentScore < CLUSTER_UNLOCK_SCORE) {
       return 1;
     }
 
