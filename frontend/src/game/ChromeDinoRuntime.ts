@@ -56,7 +56,10 @@ const randomFrom = <T>(items: readonly T[]): T => {
   return items[Math.floor(Math.random() * items.length)]!;
 };
 
-const CLUSTER_UNLOCK_SCORE = 1000;
+const CLUSTER_UNLOCK_SCORE = 1700;
+const PRE_UNLOCK_MIN_DELAY_MS = 760;
+const PRE_UNLOCK_MIN_DISTANCE_BASE = 230;
+const PRE_UNLOCK_MIN_DISTANCE_SPEED_FACTOR = 0.7;
 
 export class ChromeDinoRuntime {
   private readonly obstacleMetas: ObstacleMeta[];
@@ -116,7 +119,8 @@ export class ChromeDinoRuntime {
         worldSpeed,
         decision.type,
         decision.clusterCount,
-        decision.flyingHeightIndex
+        decision.flyingHeightIndex,
+        currentScore
       );
     }
 
@@ -244,7 +248,8 @@ export class ChromeDinoRuntime {
     worldSpeed: number,
     obstacle: SkinObstacle,
     clusterCount: number,
-    flyingHeightIndex: number | null
+    flyingHeightIndex: number | null,
+    currentScore: number
   ): number {
     const baseIntervalMs = randomInt(SPAWN_INTERVAL_MIN_MS, SPAWN_INTERVAL_MAX_MS);
     const speedGrowthFactor = 1 + Math.max(0, this.chromeSpeed - INITIAL_SPEED) * 0.22;
@@ -266,10 +271,20 @@ export class ChromeDinoRuntime {
       targetDistance *= 1.1;
     }
 
+    if (currentScore < CLUSTER_UNLOCK_SCORE) {
+      const preUnlockMinDistance =
+        PRE_UNLOCK_MIN_DISTANCE_BASE + worldSpeed * PRE_UNLOCK_MIN_DISTANCE_SPEED_FACTOR;
+      targetDistance = Math.max(targetDistance, preUnlockMinDistance);
+    }
+
     const maxDistance = 170 + worldSpeed * 0.95;
     targetDistance = Math.min(targetDistance, maxDistance);
 
     const delay = (targetDistance / worldSpeed) * 1000;
+    if (currentScore < CLUSTER_UNLOCK_SCORE) {
+      return Math.max(delay, PRE_UNLOCK_MIN_DELAY_MS, MIN_SPAWN_DELAY_MS);
+    }
+
     return Math.max(delay, MIN_SPAWN_DELAY_MS);
   }
 
