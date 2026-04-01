@@ -176,7 +176,7 @@ const isXtunnelRestartEnabled = (): boolean => {
 
 const getXtunnelRestartCommand = (): string => {
   const configured = (process.env.TELEGRAM_ADMIN_XTUNNEL_RESTART_COMMAND ?? '').trim();
-  return configured || 'bash ./ops/xtunnel-service.sh restart';
+  return configured || 'bash ./ops/xtunnel-loop.sh restart';
 };
 
 const getXtunnelRestartTimeoutMs = (): number => {
@@ -924,7 +924,7 @@ export const startTelegramAdminBot = async (logger: BotLogger): Promise<void> =>
 
     if (xtunnelRestartEnabled && !xtunnelRestartCommandConfigured) {
       logger.info(
-        '[admin-bot] TELEGRAM_ADMIN_XTUNNEL_RESTART_COMMAND is not set, default command will be used: bash ./ops/xtunnel-service.sh restart'
+        '[admin-bot] TELEGRAM_ADMIN_XTUNNEL_RESTART_COMMAND is not set, default command will be used: bash ./ops/xtunnel-loop.sh restart'
       );
     }
   } catch (error) {

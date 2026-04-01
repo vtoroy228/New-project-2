@@ -76,12 +76,18 @@ docker build -t telegram-dino .
 docker run -p 3000:3000 --env-file .env telegram-dino
 ```
 
-## One-command Server Deploy (Docker + xtunnel)
+## Manual Server Deploy (Docker + optional xtunnel loop)
 
-Scripts for production deployment and tunnel stability:
+No deployment wrapper script is required.
 
-- `npm run deploy:server` - deploy app and restart xtunnel watchdog
-- `npm run xtunnel:start|stop|restart|status` - tunnel process controls
+Manual deployment flow:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.app.yml up -d db
+docker compose -f docker-compose.yml -f docker-compose.app.yml build app
+docker compose -f docker-compose.yml -f docker-compose.app.yml run --rm app npx prisma migrate deploy --schema backend/prisma/schema.prisma
+docker compose -f docker-compose.yml -f docker-compose.app.yml up -d app
+```
 
 Before first deploy on server, use Docker-internal DB host:
 
@@ -89,7 +95,7 @@ Before first deploy on server, use Docker-internal DB host:
 DATABASE_URL=postgresql://postgres:postgres@db:5432/telegram_dino?schema=public
 ```
 
-Minimal xtunnel watchdog config:
+Minimal xtunnel loop config:
 
 ```bash
 XTUNNEL_BIN=xtunnel
@@ -97,21 +103,16 @@ XTUNNEL_PROTOCOL=http
 XTUNNEL_PORT=3000
 XTUNNEL_FORCE=true
 XTUNNEL_LICENSE_KEY=YOUR_LICENSE_KEY
-XTUNNEL_RESTART_MODE=daily
-XTUNNEL_RESTART_DAILY_AT=04:00
-XTUNNEL_DAILY_RESTART_IDLE_SECONDS=180
+XTUNNEL_RESTART_EVERY_MINUTES=180
+XTUNNEL_RESTART_DELAY_SECONDS=5
 ```
 
-This means restart check once per day at 04:00 (server local timezone),
-and actual restart only after 3 minutes without tunnel activity.
+Scripts:
 
-This maps to command style:
+- `npm run xtunnel:run` - run xtunnel loop in foreground
+- `npm run xtunnel:start|stop|restart|status` - background controls for the same loop script
 
-```bash
-xtunnel http 3000 --force --license YOUR_LICENSE_KEY
-```
-
-Default extended config is in `.env.example`.
+Default values are in `.env.example`.
 
 ## Telegram Auth Behavior
 
@@ -202,7 +203,7 @@ ADMIN_TELEGRAM_IDS=123456789,987654321
 TELEGRAM_ADMIN_HIDDEN_COMMAND=/__admin
 TELEGRAM_ADMIN_BOT_AUTO_DELETE_WEBHOOK=false
 TELEGRAM_ADMIN_XTUNNEL_RESTART_ENABLED=true
-TELEGRAM_ADMIN_XTUNNEL_RESTART_COMMAND="bash ./ops/xtunnel-service.sh restart"
+TELEGRAM_ADMIN_XTUNNEL_RESTART_COMMAND="bash ./ops/xtunnel-loop.sh restart"
 TELEGRAM_ADMIN_XTUNNEL_RESTART_TIMEOUT_MS=45000
 TELEGRAM_ADMIN_XTUNNEL_RESTART_CONFIRMATION="RESTART XTUNNEL"
 TELEGRAM_ADMIN_BOT_POLL_TIMEOUT_SECONDS=25

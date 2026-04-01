@@ -11,102 +11,93 @@ No CORS and no `localhost` in production API calls.
 
 ## 1. Environment Variables
 
-Required:
+Required in production:
 
 - `NODE_ENV=production`
-- `PORT=3000`
 - `HOST=0.0.0.0`
+- `PORT=3000`
+- `APP_PORT=3000`
 - `DATABASE_URL=postgresql://...`
 - `TELEGRAM_BOT_TOKEN=...`
 - `ADMIN_TELEGRAM_IDS=...`
 
-Optional (dev only, should be false/omitted in prod):
+For Docker service-to-service networking use:
 
-- `DEV_MOCK_TELEGRAM=false`
-- `VITE_DEV_MOCK_TELEGRAM=false`
-- `AUTH_DEBUG_LOGS=false`
+```bash
+DATABASE_URL=postgresql://postgres:postgres@db:5432/telegram_dino?schema=public
+```
 
-## 2. Build Docker Image
+Dev-only flags (should be `false` in prod):
+
+- `DEV_MOCK_TELEGRAM`
+- `VITE_DEV_MOCK_TELEGRAM`
+- `AUTH_DEBUG_LOGS`
+
+## 2. Manual Docker Deploy (No Wrapper Scripts)
 
 From project root:
 
 ```bash
-docker build -t telegram-dino .
+COMPOSE="docker compose -f docker-compose.yml -f docker-compose.app.yml"
+
+# 1) Start DB
+$COMPOSE up -d db
+
+# 2) Wait for DB health
+until [ "$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}starting{{end}}' telegram_dino_db)" = "healthy" ]; do
+  echo "Waiting for DB health..."
+  sleep 2
+done
+
+# 3) Build app image
+$COMPOSE build app
+
+# 4) Apply Prisma migrations
+$COMPOSE run --rm app npx prisma migrate deploy --schema backend/prisma/schema.prisma
+
+# 5) Start app
+$COMPOSE up -d app
+
+# 6) Verify containers
+$COMPOSE ps
 ```
 
-## 3. Run Container
+If your user is not in docker group yet, run with `sudo`:
 
 ```bash
-docker run -p 3000:3000 --env-file .env telegram-dino
+sudo docker compose -f docker-compose.yml -f docker-compose.app.yml ps
 ```
 
-The app now listens on `:3000` and serves frontend + API together.
-
-## 4. Database Migrations (Prod)
-
-Before traffic cutover, run migrations against the target database:
+## 3. Smoke Test Checklist
 
 ```bash
-npx prisma migrate deploy --schema backend/prisma/schema.prisma
+curl -fsS http://127.0.0.1:3000/healthz
+curl -fsS http://127.0.0.1:3000/readyz
+curl -fsS http://127.0.0.1:3000/api/leaderboard/global
 ```
 
-Or run migration command in your CI/CD pipeline before deployment.
+Expected:
 
-## 5. Telegram WebApp Setup
+- `/healthz` -> JSON with `ok: true`
+- `/readyz` -> JSON with `status: ready`
+- `/api/leaderboard/global` -> leaderboard JSON
 
-In BotFather, set Mini App URL to your HTTPS domain root.
+## 4. Telegram Mini App URL
 
-Example:
+In BotFather set Mini App URL to your HTTPS URL root, for example:
 
 - `https://miniapp.example.com`
 
-## 6. Optional Nginx Reverse Proxy
+## 5. Minimal xtunnel Loop Script
 
-You can run Nginx in front of the Fastify container:
+Repository now uses a single script:
 
-- terminate TLS in Nginx
-- proxy all requests to `http://app:3000`
+- `ops/xtunnel-loop.sh`
 
-Routing remains unchanged:
+It runs `xtunnel http 3000 --force` (with optional license and extra args)
+and restarts it every `XTUNNEL_RESTART_EVERY_MINUTES`.
 
-- `/api/*` -> Fastify API
-- everything else -> Fastify static SPA fallback
-
-## 7. Smoke Test Checklist
-
-1. `GET /` returns `index.html`
-2. `GET /api/leaderboard/global` returns JSON
-3. `POST /api/auth/validate` with Telegram `Authorization: tma <initData>` returns user
-4. Game over submits `POST /api/game/result`
-5. Leaderboard top-10 and pinned "you" row update
-
-## 8. Cloudflared for Temporary HTTPS During QA
-
-```bash
-cloudflared tunnel --url http://localhost:3000
-```
-
-Use the generated `https://*.trycloudflare.com` URL in BotFather for testing.
-
-## 9. One-command Server Deploy in Docker + xtunnel Watchdog
-
-Repository now includes:
-
-- `docker-compose.app.yml` for app container
-- `ops/deploy-server.sh` for end-to-end deploy
-- `ops/xtunnel-watchdog.sh` for periodic tunnel restart
-- `ops/xtunnel-service.sh` for start/stop/status management
-
-### Prepare `.env` on server
-
-Mandatory for Docker networking:
-
-```bash
-DATABASE_URL=postgresql://postgres:postgres@db:5432/telegram_dino?schema=public
-APP_PORT=3000
-```
-
-xtunnel watchdog tuning:
+### 5.1 Minimal `.env` for xtunnel
 
 ```bash
 XTUNNEL_ENABLED=true
@@ -115,68 +106,22 @@ XTUNNEL_PROTOCOL=http
 XTUNNEL_PORT=3000
 XTUNNEL_FORCE=true
 XTUNNEL_LICENSE_KEY=YOUR_LICENSE_KEY
-XTUNNEL_EXTRA_ARGS=
-XTUNNEL_RESTART_MODE=daily
-XTUNNEL_RESTART_DAILY_AT=04:00
-XTUNNEL_RESTART_TIMEZONE=
-# For daily mode: restart only after 3 minutes without tunnel activity
-XTUNNEL_DAILY_RESTART_IDLE_SECONDS=180
-# File checked for recent activity before daily restart
-XTUNNEL_DAILY_RESTART_ACTIVITY_FILE=./logs/xtunnel.log
-# Used only when XTUNNEL_RESTART_MODE=interval
 XTUNNEL_RESTART_EVERY_MINUTES=180
 XTUNNEL_RESTART_DELAY_SECONDS=5
 XTUNNEL_LOG_FILE=./logs/xtunnel.log
-XTUNNEL_SUPERVISOR_LOG_FILE=./logs/xtunnel-watchdog.log
-XTUNNEL_WATCHDOG_PID_FILE=./.run/xtunnel-watchdog.pid
+XTUNNEL_PID_FILE=./.run/xtunnel-loop.pid
 ```
 
-With this config, planned restart is checked once per day at `04:00` (server local timezone),
-but actual restart happens only after at least 3 minutes of inactivity in
-`XTUNNEL_DAILY_RESTART_ACTIVITY_FILE`.
-
-This builds a command like:
+### 5.2 Run xtunnel once in foreground
 
 ```bash
-xtunnel http 3000 --force --license YOUR_LICENSE_KEY
+set -a
+source .env
+set +a
+"$XTUNNEL_BIN" "$XTUNNEL_PROTOCOL" "$XTUNNEL_PORT" --force --license "$XTUNNEL_LICENSE_KEY"
 ```
 
-Optional full command override (if needed):
-
-```bash
-XTUNNEL_COMMAND="xtunnel http 3000 --force --license YOUR_LICENSE_KEY"
-```
-
-### Optional: restart xtunnel from Telegram admin bot
-
-```bash
-TELEGRAM_ADMIN_XTUNNEL_RESTART_ENABLED=true
-TELEGRAM_ADMIN_XTUNNEL_RESTART_COMMAND="bash ./ops/xtunnel-service.sh restart"
-TELEGRAM_ADMIN_XTUNNEL_RESTART_TIMEOUT_MS=45000
-TELEGRAM_ADMIN_XTUNNEL_RESTART_CONFIRMATION="RESTART XTUNNEL"
-TELEGRAM_ADMIN_BOT_POLL_TIMEOUT_SECONDS=25
-TELEGRAM_ADMIN_BOT_POLL_REQUEST_TIMEOUT_MS=45000
-```
-
-After backend restart, admin panel gets button `🔁 Перезапустить xtunnel` with manual confirmation.
-`TELEGRAM_ADMIN_XTUNNEL_RESTART_COMMAND` must be executable from the backend runtime context.
-If network is slow, increase `TELEGRAM_ADMIN_BOT_POLL_REQUEST_TIMEOUT_MS` to 60000.
-
-### Deploy everything with one command
-
-```bash
-npm run deploy:server
-```
-
-What this command does:
-
-1. Starts Postgres container and waits for healthcheck
-2. Builds app image
-3. Runs `prisma migrate deploy`
-4. Starts app container
-5. Restarts xtunnel watchdog (if enabled)
-
-### Manual tunnel controls
+### 5.3 Run loop in background
 
 ```bash
 npm run xtunnel:start
@@ -185,7 +130,107 @@ npm run xtunnel:restart
 npm run xtunnel:stop
 ```
 
-Logs:
+Optional foreground mode:
 
-- tunnel stdout/stderr: `logs/xtunnel.log`
-- watchdog lifecycle: `logs/xtunnel-watchdog.log`
+```bash
+npm run xtunnel:run
+```
+
+## 6. Fresh Ubuntu Server Bootstrap (from zero)
+
+### 6.1 Install base tools
+
+```bash
+sudo apt-get update
+sudo apt-get install -y ca-certificates curl gnupg git
+```
+
+### 6.2 Install Docker Engine + Compose plugin
+
+```bash
+sudo install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+sudo chmod a+r /etc/apt/keyrings/docker.gpg
+
+echo \
+  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
+  $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
+  | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+sudo apt-get update
+sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+sudo usermod -aG docker "$USER"
+newgrp docker
+```
+
+### 6.3 Clone project
+
+```bash
+cd /opt
+sudo git clone <YOUR_REPO_URL> telegram-dino
+sudo chown -R "$USER":"$USER" /opt/telegram-dino
+cd /opt/telegram-dino
+```
+
+### 6.4 Install xtunnel binary
+
+```bash
+XTUNNEL_LINUX_URL="https://REPLACE_WITH_VENDOR_BINARY_URL"
+curl -fL "$XTUNNEL_LINUX_URL" -o /tmp/xtunnel
+chmod +x /tmp/xtunnel
+sudo install -m 0755 /tmp/xtunnel /usr/local/bin/xtunnel
+```
+
+### 6.5 Prepare `.env`
+
+```bash
+cp .env.example .env
+```
+
+Then edit values for bot token, admins, db, and xtunnel.
+
+### 6.6 First deploy
+
+Run the manual flow from section 2.
+
+## 7. Optional systemd for xtunnel loop
+
+```bash
+sudo tee /etc/systemd/system/telegram-dino-xtunnel.service > /dev/null <<EOF
+[Unit]
+Description=Telegram Dino xtunnel loop
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=$USER
+Group=$USER
+WorkingDirectory=/opt/telegram-dino
+ExecStart=/bin/bash /opt/telegram-dino/ops/xtunnel-loop.sh run
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable --now telegram-dino-xtunnel.service
+sudo systemctl status telegram-dino-xtunnel.service --no-pager
+```
+
+## 8. Useful Logs
+
+App logs:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.app.yml logs -f app
+```
+
+xtunnel loop logs:
+
+```bash
+tail -n 100 logs/xtunnel.log
+```
