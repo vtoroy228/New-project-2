@@ -52,16 +52,6 @@ interface Actor {
 const WORLD_WIDTH = 500;
 const WORLD_HEIGHT = 300;
 const VISUAL_CLUSTER_GAP = 3;
-const MAX_VISUAL_TO_HITBOX_RATIO = 1.5;
-const WORLD_STRETCH_COMPENSATION_STRENGTH = 0.95;
-const MAX_WORLD_STRETCH_COMPENSATION_X = 2.8;
-const TELEGRAM_REFERENCE_WIDTH = 412;
-const MIN_TELEGRAM_WIDTH_TUNING = 0.9;
-const MAX_TELEGRAM_WIDTH_TUNING = 1.05;
-const MODEL_SCALE_REFERENCE_WIDTH = 420;
-const MIN_MODEL_WIDTH_SCALE = 0.9;
-const MAX_MODEL_WIDTH_SCALE = 1.12;
-const PHONE_MODEL_WIDTH_BOOST = 1.03;
 
 export const getDefaultSettings = (): GameEngineSettings => {
   return {
@@ -92,8 +82,6 @@ export class GameEngine {
   private score = 0;
   private obstaclesPassed = 0;
   private playTime = 0;
-  private viewportWidth = WORLD_WIDTH;
-  private telegramViewportWidth = TELEGRAM_REFERENCE_WIDTH;
   private startTimestamp = 0;
   private lastTimestamp = 0;
   private rafId = 0;
@@ -164,13 +152,6 @@ export class GameEngine {
     const safeWidth = Math.max(280, Math.floor(width));
     const safeHeight = Math.max(180, Math.floor(height));
     const ratio = window.devicePixelRatio || 1;
-    const viewportWidth = window.visualViewport?.width ?? window.innerWidth;
-
-    this.viewportWidth = safeWidth;
-    this.telegramViewportWidth =
-      typeof viewportWidth === 'number' && Number.isFinite(viewportWidth) && viewportWidth > 0
-        ? viewportWidth
-        : safeWidth;
 
     const targetWidth = Math.floor(safeWidth * ratio);
     const targetHeight = Math.floor(safeHeight * ratio);
@@ -462,52 +443,20 @@ export class GameEngine {
   }
 
   private getBaseModelVisualScale(): number {
-    const desktopScale = window.innerWidth >= 1024 ? 0.95 : 1;
-    const phoneBoost = window.innerWidth <= 768 ? PHONE_MODEL_WIDTH_BOOST : 1;
-    return desktopScale * phoneBoost * this.getViewportWidthModelScale();
+    // Fixed model scale on every device.
+    return 1;
   }
 
   private getViewportWidthModelScale(): number {
-    const widthRatio = this.viewportWidth / MODEL_SCALE_REFERENCE_WIDTH;
-    if (!Number.isFinite(widthRatio) || widthRatio <= 0) {
-      return 1;
-    }
-
-    // Sqrt keeps scaling responsive to width without dramatic jumps between devices.
-    const smoothedRatio = Math.sqrt(widthRatio);
-    return Math.min(MAX_MODEL_WIDTH_SCALE, Math.max(MIN_MODEL_WIDTH_SCALE, smoothedRatio));
+    return 1;
   }
 
   private getWorldStretchCompensationX(): number {
-    const scaleX = this.canvas.width / WORLD_WIDTH;
-    const scaleY = this.canvas.height / WORLD_HEIGHT;
-    if (scaleX <= 0 || scaleY <= 0) {
-      return 1;
-    }
-
-    const worldStretchX = scaleY / scaleX;
-    if (worldStretchX <= 1) {
-      return 1;
-    }
-
-    // Follow real stretch ratio much closer on tall viewports (e.g. Pixel line)
-    // so sprite proportions stay natural across devices.
-    const targetCompensation = Math.min(MAX_WORLD_STRETCH_COMPENSATION_X, worldStretchX);
-    const stretchedCompensation = 1 + (targetCompensation - 1) * WORLD_STRETCH_COMPENSATION_STRENGTH;
-    return stretchedCompensation * this.getTelegramWidthTuning();
+    return 1;
   }
 
   private getTelegramWidthTuning(): number {
-    const widthRatio = this.telegramViewportWidth / TELEGRAM_REFERENCE_WIDTH;
-    if (!Number.isFinite(widthRatio) || widthRatio <= 0) {
-      return 1;
-    }
-
-    const smoothedRatio = Math.sqrt(widthRatio);
-    return Math.min(
-      MAX_TELEGRAM_WIDTH_TUNING,
-      Math.max(MIN_TELEGRAM_WIDTH_TUNING, smoothedRatio)
-    );
+    return 1;
   }
 
   private getHitboxAlignmentScale(
@@ -516,36 +465,30 @@ export class GameEngine {
     hitboxWidth: number,
     hitboxHeight: number
   ): number {
-    const safeHitboxWidth = Math.max(1, hitboxWidth);
-    const safeHitboxHeight = Math.max(1, hitboxHeight);
-    const widthRatio = entityWidth / safeHitboxWidth;
-    const heightRatio = entityHeight / safeHitboxHeight;
-    const maxRatio = Math.max(widthRatio, heightRatio);
-
-    if (!Number.isFinite(maxRatio) || maxRatio <= 0) {
-      return 1;
-    }
-
-    if (maxRatio <= MAX_VISUAL_TO_HITBOX_RATIO) {
-      return 1;
-    }
-
-    return MAX_VISUAL_TO_HITBOX_RATIO / maxRatio;
+    void entityWidth;
+    void entityHeight;
+    void hitboxWidth;
+    void hitboxHeight;
+    // Keep sprite size strictly driven by manifest dimensions.
+    return 1;
   }
 
   private getDinoVisualScale(): { x: number; y: number } {
     const baseScale = this.getBaseModelVisualScale();
     const dinoHitbox = this.skin.manifest.dino.hitbox;
+    const uniformRenderScale = Math.min(this.dinoRenderScaleX, this.dinoRenderScaleY);
     const alignmentScale = this.getHitboxAlignmentScale(
-      this.dino.width * this.dinoRenderScaleX,
-      this.dino.height * this.dinoRenderScaleY,
+      this.dino.width * uniformRenderScale,
+      this.dino.height * uniformRenderScale,
       dinoHitbox.width,
       dinoHitbox.height
     );
 
+    const finalScale = uniformRenderScale * baseScale * alignmentScale;
+
     return {
-      x: this.dinoRenderScaleX * baseScale * alignmentScale,
-      y: this.dinoRenderScaleY * baseScale * alignmentScale
+      x: finalScale,
+      y: finalScale
     };
   }
 
@@ -565,11 +508,16 @@ export class GameEngine {
     const ctx = this.context;
 
     ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.imageSmoothingEnabled = false;
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
     const scaleX = this.canvas.width / WORLD_WIDTH;
     const scaleY = this.canvas.height / WORLD_HEIGHT;
-    ctx.setTransform(scaleX, 0, 0, scaleY, 0, 0);
+    // Use a uniform transform to keep world proportions consistent on all aspect ratios.
+    const uniformScale = Math.min(scaleX, scaleY);
+    const offsetX = (this.canvas.width - WORLD_WIDTH * uniformScale) / 2;
+    const offsetY = (this.canvas.height - WORLD_HEIGHT * uniformScale) / 2;
+    ctx.setTransform(uniformScale, 0, 0, uniformScale, offsetX, offsetY);
 
     const worldCompensationX = this.getWorldStretchCompensationX();
 
@@ -586,10 +534,10 @@ export class GameEngine {
       const obstacleRenderY = obstacle.y + (obstacle.height - obstacleRenderHeight);
       ctx.drawImage(
         obstacle.sprite,
-        obstacleRenderX,
-        obstacleRenderY,
-        obstacleRenderWidth,
-        obstacleRenderHeight
+        Math.round(obstacleRenderX),
+        Math.round(obstacleRenderY),
+        Math.round(obstacleRenderWidth),
+        Math.round(obstacleRenderHeight)
       );
     }
 
@@ -599,6 +547,12 @@ export class GameEngine {
     const renderX = this.dino.x - (renderWidth - this.dino.width) / 2;
     const renderY = this.dino.y - (renderHeight - this.dino.height);
 
-    ctx.drawImage(this.dinoSprite, renderX, renderY, renderWidth, renderHeight);
+    ctx.drawImage(
+      this.dinoSprite,
+      Math.round(renderX),
+      Math.round(renderY),
+      Math.round(renderWidth),
+      Math.round(renderHeight)
+    );
   }
 }

@@ -479,8 +479,7 @@ const sendWelcomeMessage = async (
   preferWebAppButton: boolean
 ): Promise<void> => {
   const message =
-    'Привет! Я игра csfst, ' +
-    'где ты типо нокиасися и прыгаешь через хрущевки.\n' +
+    'Привет! Я игра CSFEST: Noki\'s Adventure, где ты типо Нокиа и прыгаешь через хрущевки.\n' +
     'Жми кнопку ниже и запускай забег.';
 
   const replyMarkup = miniAppUrl

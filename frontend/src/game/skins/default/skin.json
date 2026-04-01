@@ -1,9 +1,9 @@
 {
   "physics": {
     "gravity": 1950,
-    "jumpVelocity": 650,
-    "scorePerSecond": 12,
-    "scorePerObstacle": 45,
+    "jumpVelocity": 685,
+    "scorePerSecond": 54,
+    "scorePerObstacle": 0,
     "groundOffset": 40
   },
   "dino": {
