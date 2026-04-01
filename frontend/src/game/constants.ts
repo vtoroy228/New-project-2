@@ -6,8 +6,8 @@ export const MAX_SPEED = 2.3;
 
 export const MAX_OBSTACLE_DUPLICATION = 2;
 
-export const FLYING_MIN_SPEED = 1.55;
-export const NO_CROUCH_FLYING_HEIGHTS = [30, 44, 86] as const;
+export const FLYING_MIN_SPEED = 1;
+export const NO_CROUCH_FLYING_HEIGHTS = [40, 54, 96] as const;
 
 export const WORLD_SPEED_SCALE = 320;
 

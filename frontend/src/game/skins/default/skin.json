@@ -22,32 +22,32 @@
       "id": "cactus",
       "category": "high",
       "sprite": "cactus.png",
-      "width": 32,
-      "height": 58,
+      "width": 40,
+      "height": 72,
       "minGap": 150,
       "minSpeed": 280,
       "multipleSpeed": 540,
       "hitbox": {
-        "x": 4,
-        "y": 8,
-        "width": 24,
-        "height": 46
+        "x": 5,
+        "y": 10,
+        "width": 30,
+        "height": 56
       }
     },
     {
       "id": "rock",
       "category": "low",
       "sprite": "rock.png",
-      "width": 42,
-      "height": 26,
+      "width": 56,
+      "height": 66,
       "minGap": 190,
       "minSpeed": 240,
       "multipleSpeed": 460,
       "hitbox": {
-        "x": 4,
-        "y": 5,
-        "width": 34,
-        "height": 18
+        "x": 6,
+        "y": 12,
+        "width": 45,
+        "height": 42
       }
     },
     {

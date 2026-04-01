@@ -3,7 +3,11 @@ import { getMe, submitGameResult } from '../services/api';
 import { GameEngine, getDefaultSettings } from '../game/GameEngine';
 import { soundManager } from '../game/SoundManager';
 import { DEFAULT_SKIN, loadSkin } from '../game/SkinLoader';
-import { triggerGameOverHaptic, triggerSuccessHaptic } from '../services/telegram';
+import {
+  getTelegramWebApp,
+  triggerGameOverHaptic,
+  triggerSuccessHaptic
+} from '../services/telegram';
 import { tokens } from '../ui/theme/tokens';
 import { BottomSheet } from '../ui/components/BottomSheet';
 import { Button } from '../ui/components/Button';
@@ -252,8 +256,9 @@ export const GameScreen = ({ active = true }: GameScreenProps) => {
 
         const wrapper = canvasWrapperRef.current;
         if (wrapper) {
-          const bounds = wrapper.getBoundingClientRect();
-          engine.resize(bounds.width, bounds.height);
+          const width = wrapper.clientWidth || wrapper.getBoundingClientRect().width;
+          const height = wrapper.clientHeight || wrapper.getBoundingClientRect().height;
+          engine.resize(width, height);
         }
 
         setSkinReady(true);
@@ -289,19 +294,26 @@ export const GameScreen = ({ active = true }: GameScreenProps) => {
     }
 
     const resize = () => {
-      const bounds = wrapper.getBoundingClientRect();
-      engineRef.current?.resize(bounds.width, bounds.height);
+      const width = wrapper.clientWidth || wrapper.getBoundingClientRect().width;
+      const height = wrapper.clientHeight || wrapper.getBoundingClientRect().height;
+      engineRef.current?.resize(width, height);
     };
 
     const observer = new ResizeObserver(resize);
     observer.observe(wrapper);
 
+    const webApp = getTelegramWebApp();
+    webApp?.onEvent?.('viewportChanged', resize);
+
     window.addEventListener('orientationchange', resize);
+    window.visualViewport?.addEventListener('resize', resize);
     resize();
 
     return () => {
       observer.disconnect();
+      webApp?.offEvent?.('viewportChanged', resize);
       window.removeEventListener('orientationchange', resize);
+      window.visualViewport?.removeEventListener('resize', resize);
     };
   }, []);
 

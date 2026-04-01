@@ -17,6 +17,10 @@ interface TelegramWebApp {
   ready: () => void;
   expand: () => void;
   close: () => void;
+  viewportHeight?: number;
+  viewportStableHeight?: number;
+  onEvent?: (eventType: 'viewportChanged', eventHandler: () => void) => void;
+  offEvent?: (eventType: 'viewportChanged', eventHandler: () => void) => void;
   HapticFeedback?: {
     impactOccurred: (style: 'light' | 'medium' | 'heavy') => void;
     notificationOccurred: (type: 'error' | 'success' | 'warning') => void;

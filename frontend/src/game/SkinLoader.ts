@@ -21,6 +21,8 @@ export interface SkinEntity {
   sprite: string;
   width: number;
   height: number;
+  renderScaleX?: number;
+  renderScaleY?: number;
   hitbox: SkinRect;
 }
 

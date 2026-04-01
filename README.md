@@ -76,6 +76,43 @@ docker build -t telegram-dino .
 docker run -p 3000:3000 --env-file .env telegram-dino
 ```
 
+## One-command Server Deploy (Docker + xtunnel)
+
+Scripts for production deployment and tunnel stability:
+
+- `npm run deploy:server` - deploy app and restart xtunnel watchdog
+- `npm run xtunnel:start|stop|restart|status` - tunnel process controls
+
+Before first deploy on server, use Docker-internal DB host:
+
+```bash
+DATABASE_URL=postgresql://postgres:postgres@db:5432/telegram_dino?schema=public
+```
+
+Minimal xtunnel watchdog config:
+
+```bash
+XTUNNEL_BIN=xtunnel
+XTUNNEL_PROTOCOL=http
+XTUNNEL_PORT=3000
+XTUNNEL_FORCE=true
+XTUNNEL_LICENSE_KEY=YOUR_LICENSE_KEY
+XTUNNEL_RESTART_MODE=daily
+XTUNNEL_RESTART_DAILY_AT=04:00
+XTUNNEL_DAILY_RESTART_IDLE_SECONDS=180
+```
+
+This means restart check once per day at 04:00 (server local timezone),
+and actual restart only after 3 minutes without tunnel activity.
+
+This maps to command style:
+
+```bash
+xtunnel http 3000 --force --license YOUR_LICENSE_KEY
+```
+
+Default extended config is in `.env.example`.
+
 ## Telegram Auth Behavior
 
 - In Telegram WebApp: `initData` is required and sent as `Authorization: tma <initData>`.
@@ -164,7 +201,16 @@ TELEGRAM_ADMIN_BOT_ENABLED=true
 ADMIN_TELEGRAM_IDS=123456789,987654321
 TELEGRAM_ADMIN_HIDDEN_COMMAND=/__admin
 TELEGRAM_ADMIN_BOT_AUTO_DELETE_WEBHOOK=false
+TELEGRAM_ADMIN_XTUNNEL_RESTART_ENABLED=true
+TELEGRAM_ADMIN_XTUNNEL_RESTART_COMMAND="bash ./ops/xtunnel-service.sh restart"
+TELEGRAM_ADMIN_XTUNNEL_RESTART_TIMEOUT_MS=45000
+TELEGRAM_ADMIN_XTUNNEL_RESTART_CONFIRMATION="RESTART XTUNNEL"
+TELEGRAM_ADMIN_BOT_POLL_TIMEOUT_SECONDS=25
+TELEGRAM_ADMIN_BOT_POLL_REQUEST_TIMEOUT_MS=45000
 ```
+
+`TELEGRAM_ADMIN_XTUNNEL_RESTART_COMMAND` should be executable from where backend process is running.
+If long-poll timeout logs still appear, increase `TELEGRAM_ADMIN_BOT_POLL_REQUEST_TIMEOUT_MS` to `60000`.
 
 How it works:
 - panel is available only in private chat and only for users from `ADMIN_TELEGRAM_IDS`
@@ -172,12 +218,13 @@ How it works:
 - optional: set `TELEGRAM_ADMIN_BOT_AUTO_DELETE_WEBHOOK=true` to auto-disable webhook for polling mode
 - command is not auto-published in visible UI menus by this app
 - available actions:
-  - leaderboard reset with manual confirmation (enter current max score)
-  - leaderboard restore from latest backup with manual confirmation
-  - manual bestScore update by `@username` or `telegramId`
-  - view last 15 game results
-  - manual bestScore rebuild from `GameResult`
-    - rebuild uses only runs from current leaderboard epoch (after the latest reset)
+   - leaderboard reset with manual confirmation (enter current max score)
+   - leaderboard restore from latest backup with manual confirmation
+   - manual bestScore update by `@username` or `telegramId`
+   - view last 15 game results
+   - manual xtunnel restart (`🔁 Перезапустить xtunnel`) with confirmation phrase
+   - manual bestScore rebuild from `GameResult`
+      - rebuild uses only runs from current leaderboard epoch (after the latest reset)
 
 ## Readable Logs
 

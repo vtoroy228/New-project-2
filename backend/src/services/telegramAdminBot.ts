@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process';
 import {
   getCurrentLeaderboardMaxScore,
   getLatestLeaderboardBackupMeta,
@@ -58,7 +59,21 @@ interface ReplyKeyboardRemove {
   remove_keyboard: true;
 }
 
-type ReplyMarkup = ReplyKeyboardMarkup | ReplyKeyboardRemove;
+interface InlineWebAppInfo {
+  url: string;
+}
+
+interface InlineKeyboardButton {
+  text: string;
+  web_app?: InlineWebAppInfo;
+  url?: string;
+}
+
+interface InlineKeyboardMarkup {
+  inline_keyboard: Array<Array<InlineKeyboardButton>>;
+}
+
+type ReplyMarkup = ReplyKeyboardMarkup | ReplyKeyboardRemove | InlineKeyboardMarkup;
 
 type AdminSession =
   | {
@@ -69,6 +84,9 @@ type AdminSession =
     }
   | {
       kind: 'await_restore_confirmation';
+    }
+  | {
+      kind: 'await_xtunnel_restart_confirmation';
     }
   | {
       kind: 'await_score_value';
@@ -124,14 +142,159 @@ const BUTTON_RESTORE = '↩️ Вернуть бэкап';
 const BUTTON_SET_SCORE = '✏️ Изменить очки';
 const BUTTON_RECENT_GAMES = '🕹 Последние 15 игр';
 const BUTTON_REBUILD = '♻️ Обновить bestScore';
+const BUTTON_RESTART_XTUNNEL = '🔁 Перезапустить xtunnel';
 const BUTTON_HIDE = '🙈 Скрыть меню';
+const BUTTON_LAUNCH = 'ЗАПУСТИТЬ';
+const START_COMMAND = '/start';
+const XTUNNEL_RESTART_CONFIRMATION = 'RESTART XTUNNEL';
+
+interface ShellCommandResult {
+  ok: boolean;
+  exitCode: number | null;
+  signal: NodeJS.Signals | null;
+  timedOut: boolean;
+  stdout: string;
+  stderr: string;
+}
+
+const parsePositiveInt = (value: string | undefined, fallback: number): number => {
+  if (!value) {
+    return fallback;
+  }
+
+  const parsed = parseIntSafe(value);
+  if (parsed === null || parsed < 1) {
+    return fallback;
+  }
+
+  return parsed;
+};
+
+const isXtunnelRestartEnabled = (): boolean => {
+  return parseBoolean(process.env.TELEGRAM_ADMIN_XTUNNEL_RESTART_ENABLED, false);
+};
+
+const getXtunnelRestartCommand = (): string => {
+  const configured = (process.env.TELEGRAM_ADMIN_XTUNNEL_RESTART_COMMAND ?? '').trim();
+  return configured || 'bash ./ops/xtunnel-service.sh restart';
+};
+
+const getXtunnelRestartTimeoutMs = (): number => {
+  return parsePositiveInt(process.env.TELEGRAM_ADMIN_XTUNNEL_RESTART_TIMEOUT_MS, 45_000);
+};
+
+const getXtunnelRestartConfirmationToken = (): string => {
+  const raw = (process.env.TELEGRAM_ADMIN_XTUNNEL_RESTART_CONFIRMATION ?? XTUNNEL_RESTART_CONFIRMATION)
+    .trim()
+    .toUpperCase();
+  return raw.length > 0 ? raw : XTUNNEL_RESTART_CONFIRMATION;
+};
+
+const clipText = (value: string, maxChars: number): string => {
+  if (value.length <= maxChars) {
+    return value;
+  }
+
+  return `${value.slice(0, maxChars)}\n...truncated`;
+};
+
+const formatCommandOutput = (stdout: string, stderr: string): string => {
+  const chunks: string[] = [];
+
+  const trimmedStdout = stdout.trim();
+  if (trimmedStdout.length > 0) {
+    chunks.push(`stdout:\n${clipText(trimmedStdout, 1200)}`);
+  }
+
+  const trimmedStderr = stderr.trim();
+  if (trimmedStderr.length > 0) {
+    chunks.push(`stderr:\n${clipText(trimmedStderr, 1200)}`);
+  }
+
+  return chunks.length > 0 ? `\n\n${chunks.join('\n\n')}` : '';
+};
+
+const runShellCommand = async (command: string, timeoutMs: number): Promise<ShellCommandResult> => {
+  return new Promise((resolve) => {
+    const child = spawn('bash', ['-lc', command], {
+      cwd: process.cwd(),
+      env: process.env,
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
+
+    let stdout = '';
+    let stderr = '';
+    let timedOut = false;
+    let timeoutKillTimer: NodeJS.Timeout | null = null;
+
+    const append = (current: string, chunk: Buffer): string => {
+      const next = current + chunk.toString('utf8');
+      if (next.length <= 6000) {
+        return next;
+      }
+
+      return next.slice(0, 6000);
+    };
+
+    child.stdout?.on('data', (chunk: Buffer) => {
+      stdout = append(stdout, chunk);
+    });
+
+    child.stderr?.on('data', (chunk: Buffer) => {
+      stderr = append(stderr, chunk);
+    });
+
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      child.kill('SIGTERM');
+
+      timeoutKillTimer = setTimeout(() => {
+        child.kill('SIGKILL');
+      }, 2000);
+      timeoutKillTimer.unref();
+    }, timeoutMs);
+    timeout.unref();
+
+    child.on('close', (code, signal) => {
+      clearTimeout(timeout);
+      if (timeoutKillTimer) {
+        clearTimeout(timeoutKillTimer);
+      }
+
+      resolve({
+        ok: !timedOut && code === 0,
+        exitCode: code,
+        signal,
+        timedOut,
+        stdout,
+        stderr
+      });
+    });
+
+    child.on('error', (error) => {
+      clearTimeout(timeout);
+      if (timeoutKillTimer) {
+        clearTimeout(timeoutKillTimer);
+      }
+
+      resolve({
+        ok: false,
+        exitCode: null,
+        signal: null,
+        timedOut,
+        stdout,
+        stderr: `${stderr}\n${error.message}`.trim()
+      });
+    });
+  });
+};
 
 const buildAdminKeyboard = (): ReplyKeyboardMarkup => {
   return {
     keyboard: [
       [{ text: BUTTON_RESET }, { text: BUTTON_SET_SCORE }],
       [{ text: BUTTON_RESTORE }, { text: BUTTON_REBUILD }],
-      [{ text: BUTTON_RECENT_GAMES }],
+      [{ text: BUTTON_RECENT_GAMES }, { text: BUTTON_RESTART_XTUNNEL }],
       [{ text: BUTTON_HIDE }]
     ],
     resize_keyboard: true
@@ -165,6 +328,29 @@ const getHiddenCommand = (): string => {
   return value.startsWith('/') ? value : `/${value}`;
 };
 
+const getMiniAppUrl = (botUsername?: string): string | null => {
+  const configuredUrl = (process.env.TELEGRAM_MINI_APP_URL ?? '').trim();
+  if (configuredUrl.length > 0) {
+    return configuredUrl;
+  }
+
+  if (botUsername) {
+    return `https://t.me/${botUsername}?startapp=play`;
+  }
+
+  return null;
+};
+
+const getCommandToken = (text: string): string => {
+  const [token = ''] = text.trim().toLowerCase().split(/\s+/, 1);
+  return token;
+};
+
+const isStartCommand = (text: string): boolean => {
+  const token = getCommandToken(text);
+  return token === START_COMMAND || token.startsWith(`${START_COMMAND}@`);
+};
+
 const isCommand = (text: string, command: string): boolean => {
   if (text === command) {
     return true;
@@ -191,6 +377,24 @@ const toErrorLogPayload = (error: unknown): Record<string, unknown> => {
   return {
     errorValue: error,
     errorMessage: String(error)
+  };
+};
+
+const buildLaunchKeyboard = (miniAppUrl: string, preferWebAppButton: boolean): InlineKeyboardMarkup => {
+  const launchButton: InlineKeyboardButton = preferWebAppButton
+    ? {
+        text: BUTTON_LAUNCH,
+        web_app: {
+          url: miniAppUrl
+        }
+      }
+    : {
+        text: BUTTON_LAUNCH,
+        url: miniAppUrl
+      };
+
+  return {
+    inline_keyboard: [[launchButton]]
   };
 };
 
@@ -224,6 +428,18 @@ const callTelegramApi = async <T>(
     }
 
     return data.result;
+  } catch (error) {
+    const domException = error as DOMException;
+    if (domException?.name === 'AbortError') {
+      const timeoutError = new Error(`Telegram API request timed out after ${timeoutMs}ms`) as Error & {
+        code?: string;
+      };
+      timeoutError.name = 'TelegramRequestTimeoutError';
+      timeoutError.code = 'REQUEST_TIMEOUT';
+      throw timeoutError;
+    }
+
+    throw error;
   } finally {
     clearTimeout(timeout);
   }
@@ -254,6 +470,24 @@ const showAdminPanel = async (botToken: string, chatId: number, hiddenCommand: s
     `Админ-панель активирована.\nКоманды доступны через кнопки ниже.\nДля отмены текущего действия: /cancel\nДля скрытия панели: ${BUTTON_HIDE}\nСкрытая команда: ${hiddenCommand}`,
     buildAdminKeyboard()
   );
+};
+
+const sendWelcomeMessage = async (
+  botToken: string,
+  chatId: number,
+  miniAppUrl: string | null,
+  preferWebAppButton: boolean
+): Promise<void> => {
+  const message =
+    'Привет! Я игра csfst, ' +
+    'где ты типо нокиасися и прыгаешь через хрущевки.\n' +
+    'Жми кнопку ниже и запускай забег.';
+
+  const replyMarkup = miniAppUrl
+    ? buildLaunchKeyboard(miniAppUrl, preferWebAppButton)
+    : undefined;
+
+  await sendMessage(botToken, chatId, message, replyMarkup);
 };
 
 const parseScore = (raw: string): number | null => {
@@ -333,6 +567,52 @@ const handleSessionMessage = async (
       botToken,
       chatId,
       `Бэкап восстановлен.\nBackup ID: ${restoreResult.backupId}\nВосстановлено пользователей: ${restoreResult.restoredUsers}\nВосстановленный max score: ${restoreResult.backupMaxScore}\nЭпоха откатена к: ${restoreResult.epochStart}`
+    );
+    return;
+  }
+
+  if (session.kind === 'await_xtunnel_restart_confirmation') {
+    const expectedConfirmation = getXtunnelRestartConfirmationToken();
+    if (text.trim().toUpperCase() !== expectedConfirmation) {
+      await sendMessage(
+        botToken,
+        chatId,
+        `Подтверждение не принято. Отправьте точно: ${expectedConfirmation}\nИли /cancel.`
+      );
+      return;
+    }
+
+    sessions.delete(chatId);
+
+    if (!isXtunnelRestartEnabled()) {
+      await sendMessage(botToken, chatId, 'Перезапуск xtunnel отключен в конфиге (TELEGRAM_ADMIN_XTUNNEL_RESTART_ENABLED=false).');
+      return;
+    }
+
+    const command = getXtunnelRestartCommand();
+    const timeoutMs = getXtunnelRestartTimeoutMs();
+
+    await sendMessage(botToken, chatId, 'Запускаю перезапуск xtunnel...');
+    const result = await runShellCommand(command, timeoutMs);
+    const output = formatCommandOutput(result.stdout, result.stderr);
+
+    if (result.ok) {
+      await sendMessage(
+        botToken,
+        chatId,
+        `xtunnel перезапущен успешно.\nExit code: ${result.exitCode ?? 'n/a'}${output}`
+      );
+      return;
+    }
+
+    const failureReason = result.timedOut
+      ? `timeout after ${timeoutMs}ms`
+      : `exit code ${result.exitCode ?? 'n/a'}${result.signal ? `, signal ${result.signal}` : ''}`;
+
+    await sendMessage(
+      botToken,
+      chatId,
+      `Перезапуск xtunnel завершился с ошибкой (${failureReason}).${output}`
     );
     return;
   }
@@ -473,6 +753,28 @@ const handleAdminCommand = async (
     return;
   }
 
+  if (text === BUTTON_RESTART_XTUNNEL) {
+    if (!isXtunnelRestartEnabled()) {
+      await sendMessage(
+        botToken,
+        chatId,
+        'Перезапуск xtunnel отключен. Включите TELEGRAM_ADMIN_XTUNNEL_RESTART_ENABLED=true в .env и перезапустите backend.'
+      );
+      return;
+    }
+
+    const confirmation = getXtunnelRestartConfirmationToken();
+    sessions.set(chatId, {
+      kind: 'await_xtunnel_restart_confirmation'
+    });
+    await sendMessage(
+      botToken,
+      chatId,
+      `Подтвердите перезапуск xtunnel.\nОтправьте точно: ${confirmation}\nДля отмены: /cancel`
+    );
+    return;
+  }
+
   if (text === BUTTON_REBUILD) {
     await sendMessage(botToken, chatId, 'Запускаю пересчёт bestScore...');
     const rebuild = await rebuildBestScoresFromResults();
@@ -489,6 +791,8 @@ const handleUpdate = async (
   hiddenCommand: string,
   adminSet: Set<string>,
   logger: BotLogger,
+  miniAppUrl: string | null,
+  preferWebAppButton: boolean,
   update: TelegramUpdate
 ): Promise<void> => {
   if (!update.message) {
@@ -497,6 +801,16 @@ const handleUpdate = async (
 
   const message = update.message;
   if (message.chat.type !== 'private') {
+    return;
+  }
+
+  const text = message.text?.trim();
+  if (text && isStartCommand(text)) {
+    try {
+      await sendWelcomeMessage(botToken, message.chat.id, miniAppUrl, preferWebAppButton);
+    } catch (error) {
+      logger.error(toErrorLogPayload(error), '[admin-bot] failed to send welcome message');
+    }
     return;
   }
 
@@ -552,19 +866,31 @@ export const startTelegramAdminBot = async (logger: BotLogger): Promise<void> =>
 
   const adminSet = getAdminSet();
   if (adminSet.size === 0) {
-    logger.warn('[admin-bot] ADMIN_TELEGRAM_IDS is empty, bot listener is disabled');
-    return;
+    logger.warn('[admin-bot] ADMIN_TELEGRAM_IDS is empty, admin panel commands are disabled');
   }
 
   const hiddenCommand = getHiddenCommand();
   const autoDeleteWebhook = parseBoolean(process.env.TELEGRAM_ADMIN_BOT_AUTO_DELETE_WEBHOOK, true);
+  const pollTimeoutSeconds = parsePositiveInt(process.env.TELEGRAM_ADMIN_BOT_POLL_TIMEOUT_SECONDS, 25);
+  const pollRequestTimeoutMs = parsePositiveInt(
+    process.env.TELEGRAM_ADMIN_BOT_POLL_REQUEST_TIMEOUT_MS,
+    pollTimeoutSeconds * 1000 + 20_000
+  );
+  const xtunnelRestartEnabled = isXtunnelRestartEnabled();
+  const xtunnelRestartCommandConfigured =
+    (process.env.TELEGRAM_ADMIN_XTUNNEL_RESTART_COMMAND ?? '').trim().length > 0;
+  const configuredMiniAppUrl = (process.env.TELEGRAM_MINI_APP_URL ?? '').trim();
+  let miniAppUrl: string | null = null;
+  const preferWebAppButton = configuredMiniAppUrl.length > 0;
   running = true;
   warnedAboutWebhookConflict = false;
+  let warnedAboutPollingTimeout = false;
   updateOffset = 0;
   sessions.clear();
 
   try {
     const me = await callTelegramApi<TelegramBotSelf>(botToken, 'getMe', {}, 10_000);
+    miniAppUrl = getMiniAppUrl(me.username);
     if (autoDeleteWebhook) {
       await callTelegramApi<boolean>(
         botToken,
@@ -582,10 +908,25 @@ export const startTelegramAdminBot = async (logger: BotLogger): Promise<void> =>
         botUsername: me.username,
         admins: adminSet.size,
         hiddenCommand,
-        autoDeleteWebhook
+        autoDeleteWebhook,
+        pollTimeoutSeconds,
+        pollRequestTimeoutMs,
+        miniAppUrlConfigured: Boolean(miniAppUrl),
+        xtunnelRestartEnabled,
+        xtunnelRestartCommandConfigured
       },
       '[admin-bot] started'
     );
+
+    if (!miniAppUrl) {
+      logger.warn('[admin-bot] mini app URL is not configured; /start welcome will be sent without launch button');
+    }
+
+    if (xtunnelRestartEnabled && !xtunnelRestartCommandConfigured) {
+      logger.info(
+        '[admin-bot] TELEGRAM_ADMIN_XTUNNEL_RESTART_COMMAND is not set, default command will be used: bash ./ops/xtunnel-service.sh restart'
+      );
+    }
   } catch (error) {
     running = false;
     logger.error(toErrorLogPayload(error), '[admin-bot] failed to initialize');
@@ -602,24 +943,53 @@ export const startTelegramAdminBot = async (logger: BotLogger): Promise<void> =>
         botToken,
         'getUpdates',
         {
-          timeout: 25,
+          timeout: pollTimeoutSeconds,
           offset: updateOffset,
           allowed_updates: ['message']
         },
-        35_000
+        pollRequestTimeoutMs
       );
+
+      warnedAboutPollingTimeout = false;
 
       for (const update of updates) {
         if (update.update_id >= updateOffset) {
           updateOffset = update.update_id + 1;
         }
 
-        await handleUpdate(botToken, hiddenCommand, adminSet, logger, update);
+        await handleUpdate(
+          botToken,
+          hiddenCommand,
+          adminSet,
+          logger,
+          miniAppUrl,
+          preferWebAppButton,
+          update
+        );
       }
 
       scheduleNextPoll(poll, 0);
     } catch (error) {
-      const apiError = error as Error & { code?: number };
+      const apiError = error as Error & { code?: number | string };
+      const isPollingTimeout =
+        apiError.code === 'REQUEST_TIMEOUT' || apiError.name === 'AbortError' || apiError.code === 20;
+
+      if (isPollingTimeout) {
+        if (!warnedAboutPollingTimeout) {
+          warnedAboutPollingTimeout = true;
+          logger.warn(
+            {
+              pollTimeoutSeconds,
+              pollRequestTimeoutMs
+            },
+            '[admin-bot] getUpdates request timed out, retrying'
+          );
+        }
+
+        scheduleNextPoll(poll, 1000);
+        return;
+      }
+
       if (apiError.code === 409 && !warnedAboutWebhookConflict) {
         warnedAboutWebhookConflict = true;
         logger.warn(
