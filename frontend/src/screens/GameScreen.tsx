@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getMe, submitGameResult } from '../services/api';
+import type { GameResultPayload } from '../services/api';
 import { GameEngine, getDefaultSettings } from '../game/GameEngine';
 import { soundManager } from '../game/SoundManager';
 import { DEFAULT_SKIN, loadSkin } from '../game/SkinLoader';
@@ -20,6 +21,9 @@ const VOLUME_KEY = 'dino.volume';
 const VIBRATION_KEY = 'dino.vibration';
 const MUSIC_ENABLED_KEY = 'dino.musicEnabled';
 const LOCAL_BEST_KEY = 'dino.localBest';
+const PENDING_RESULTS_KEY = 'dino.pendingResults';
+const MAX_PENDING_RESULTS = 80;
+const RETRY_PENDING_RESULTS_MS = 15000;
 
 interface SettingsState {
   volume: number;
@@ -82,7 +86,57 @@ interface ScoreSubmittedEventDetail {
   scoreAccepted: boolean;
 }
 
+interface PendingGameResult extends GameResultPayload {
+  queuedAt: number;
+}
+
+interface SubmitGameResultResponse {
+  ok: boolean;
+  suspicious: boolean;
+  scoreAccepted: boolean;
+  userBestScore: number;
+}
+
 const SCORE_SUBMITTED_EVENT = 'dino:score-submitted';
+
+const readPendingResults = (): PendingGameResult[] => {
+  const raw = localStorage.getItem(PENDING_RESULTS_KEY);
+  if (!raw) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed
+      .filter((item): item is PendingGameResult => {
+        if (!item || typeof item !== 'object') {
+          return false;
+        }
+
+        const candidate = item as Partial<PendingGameResult>;
+        return (
+          typeof candidate.score === 'number'
+          && typeof candidate.playTime === 'number'
+          && typeof candidate.obstacles === 'number'
+          && (candidate.sessionId === undefined || typeof candidate.sessionId === 'string')
+          && typeof candidate.queuedAt === 'number'
+        );
+      })
+      .slice(-MAX_PENDING_RESULTS);
+  } catch {
+    return [];
+  }
+};
+
+const writePendingResults = (queue: PendingGameResult[]): PendingGameResult[] => {
+  const normalized = queue.slice(-MAX_PENDING_RESULTS);
+  localStorage.setItem(PENDING_RESULTS_KEY, JSON.stringify(normalized));
+  return normalized;
+};
 
 export const GameScreen = ({ active = true }: GameScreenProps) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -109,6 +163,93 @@ export const GameScreen = ({ active = true }: GameScreenProps) => {
   const serverBestRef = useRef(serverBest);
   const [hasServerBest, setHasServerBest] = useState(false);
   const hasServerBestRef = useRef(hasServerBest);
+  const flushInProgressRef = useRef(false);
+
+  const syncLocalBestFromServer = useCallback((score: number): void => {
+    const safeScore = Math.max(0, Math.trunc(Number.isFinite(score) ? score : 0));
+    localBestRef.current = Math.max(localBestRef.current, safeScore);
+
+    setLocalBest((current) => {
+      const next = Math.max(current, safeScore);
+      if (next !== current) {
+        localStorage.setItem(LOCAL_BEST_KEY, String(next));
+      }
+      return next;
+    });
+  }, []);
+
+  const applySubmitResponse = useCallback((response: SubmitGameResultResponse) => {
+    syncLocalBestFromServer(response.userBestScore);
+
+    if (response.scoreAccepted) {
+      setHasServerBest(true);
+      setServerBest((current) => Math.max(current, response.userBestScore));
+    }
+
+    window.dispatchEvent(
+      new CustomEvent<ScoreSubmittedEventDetail>(SCORE_SUBMITTED_EVENT, {
+        detail: {
+          userBestScore: response.userBestScore,
+          scoreAccepted: response.scoreAccepted
+        }
+      })
+    );
+  }, [syncLocalBestFromServer]);
+
+  const flushPendingResults = useCallback(async (): Promise<void> => {
+    if (flushInProgressRef.current) {
+      return;
+    }
+
+    flushInProgressRef.current = true;
+
+    try {
+      let queue = readPendingResults();
+
+      if (queue.length === 0) {
+        return;
+      }
+
+      while (queue.length > 0) {
+        const current = queue[0]!;
+
+        try {
+          const response = await submitGameResult({
+            score: current.score,
+            playTime: current.playTime,
+            obstacles: current.obstacles,
+            sessionId: current.sessionId
+          });
+
+          applySubmitResponse(response);
+
+          queue = queue.slice(1);
+          writePendingResults(queue);
+        } catch (error) {
+          writePendingResults(queue);
+
+          if (import.meta.env.DEV) {
+            console.info('[game] pending results flush failed', error);
+          }
+
+          return;
+        }
+      }
+    } finally {
+      flushInProgressRef.current = false;
+    }
+  }, [applySubmitResponse]);
+
+  const enqueuePendingResult = useCallback((payload: GameResultPayload): void => {
+    const queue = readPendingResults();
+    writePendingResults([
+      ...queue,
+      {
+        ...payload,
+        queuedAt: Date.now()
+      }
+    ]);
+  }, []);
 
   useEffect(() => {
     settingsRef.current = settings;
@@ -130,6 +271,25 @@ export const GameScreen = ({ active = true }: GameScreenProps) => {
       setSettingsOpen(false);
     }
   }, [active]);
+
+  useEffect(() => {
+    if (!active) {
+      return;
+    }
+
+    const flush = () => {
+      void flushPendingResults();
+    };
+
+    flush();
+    window.addEventListener('online', flush);
+    const intervalId = window.setInterval(flush, RETRY_PENDING_RESULTS_MS);
+
+    return () => {
+      window.removeEventListener('online', flush);
+      window.clearInterval(intervalId);
+    };
+  }, [active, flushPendingResults]);
 
   useEffect(() => {
     localBestRef.current = localBest;
@@ -155,6 +315,7 @@ export const GameScreen = ({ active = true }: GameScreenProps) => {
 
         setServerBest((current) => Math.max(current, response.user.bestScore));
         setHasServerBest(true);
+        syncLocalBestFromServer(response.user.bestScore);
       } catch (error) {
         if (import.meta.env.DEV) {
           console.info('[game] failed to load server profile', error);
@@ -167,7 +328,7 @@ export const GameScreen = ({ active = true }: GameScreenProps) => {
     return () => {
       active = false;
     };
-  }, []);
+  }, [syncLocalBestFromServer]);
 
   useEffect(() => {
     let disposed = false;
@@ -204,9 +365,7 @@ export const GameScreen = ({ active = true }: GameScreenProps) => {
               : Math.max(localBestRef.current, serverBestRef.current);
             const isNewRecord = snapshot.score > previousBest;
             if (isNewRecord) {
-              localBestRef.current = snapshot.score;
-              setLocalBest(snapshot.score);
-              localStorage.setItem(LOCAL_BEST_KEY, String(snapshot.score));
+              syncLocalBestFromServer(snapshot.score);
             }
 
             if (isNewRecord) {
@@ -223,32 +382,16 @@ export const GameScreen = ({ active = true }: GameScreenProps) => {
               }, 2200);
             }
 
-            try {
-              const response = await submitGameResult({
-                score: snapshot.score,
-                playTime: snapshot.playTime,
-                obstacles: snapshot.obstacles,
-                sessionId: createSessionId()
-              });
+            const payload: GameResultPayload = {
+              score: snapshot.score,
+              playTime: snapshot.playTime,
+              obstacles: snapshot.obstacles,
+              sessionId: createSessionId()
+            };
 
-              if (response.scoreAccepted) {
-                setHasServerBest(true);
-                setServerBest((current) => Math.max(current, response.userBestScore));
-              }
+            enqueuePendingResult(payload);
 
-              window.dispatchEvent(
-                new CustomEvent<ScoreSubmittedEventDetail>(SCORE_SUBMITTED_EVENT, {
-                  detail: {
-                    userBestScore: response.userBestScore,
-                    scoreAccepted: response.scoreAccepted
-                  }
-                })
-              );
-            } catch (error) {
-              if (import.meta.env.DEV) {
-                console.info('[game] failed to submit result', error);
-              }
-            }
+            void flushPendingResults();
           }
         });
 
@@ -285,7 +428,7 @@ export const GameScreen = ({ active = true }: GameScreenProps) => {
       engineRef.current?.destroy();
       engineRef.current = null;
     };
-  }, [skinBootToken]);
+  }, [enqueuePendingResult, flushPendingResults, skinBootToken, syncLocalBestFromServer]);
 
   useEffect(() => {
     const wrapper = canvasWrapperRef.current;

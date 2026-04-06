@@ -32,6 +32,7 @@ XTUNNEL_LICENSE_KEY="${XTUNNEL_LICENSE_KEY:-}"
 XTUNNEL_EXTRA_ARGS="${XTUNNEL_EXTRA_ARGS:-}"
 XTUNNEL_RESTART_EVERY_MINUTES="${XTUNNEL_RESTART_EVERY_MINUTES:-180}"
 XTUNNEL_RESTART_DELAY_SECONDS="${XTUNNEL_RESTART_DELAY_SECONDS:-5}"
+XTUNNEL_STARTUP_GRACE_SECONDS="${XTUNNEL_STARTUP_GRACE_SECONDS:-2}"
 XTUNNEL_LOG_FILE="${XTUNNEL_LOG_FILE:-$ROOT_DIR/logs/xtunnel.log}"
 XTUNNEL_PID_FILE="${XTUNNEL_PID_FILE:-$ROOT_DIR/.run/xtunnel-loop.pid}"
 
@@ -51,6 +52,10 @@ fi
 
 if ! [[ "$XTUNNEL_RESTART_DELAY_SECONDS" =~ ^[0-9]+$ ]] || (( XTUNNEL_RESTART_DELAY_SECONDS < 1 )); then
   fail "XTUNNEL_RESTART_DELAY_SECONDS must be a positive integer"
+fi
+
+if ! [[ "$XTUNNEL_STARTUP_GRACE_SECONDS" =~ ^[0-9]+$ ]] || (( XTUNNEL_STARTUP_GRACE_SECONDS < 1 )); then
+  fail "XTUNNEL_STARTUP_GRACE_SECONDS must be a positive integer"
 fi
 
 read_pid() {
@@ -138,7 +143,19 @@ start_loop() {
   nohup "$0" run >>"$XTUNNEL_LOG_FILE" 2>&1 &
   local pid=$!
   printf '%s\n' "$pid" > "$XTUNNEL_PID_FILE"
-  printf '[xtunnel-loop] started (pid=%s)\n' "$pid"
+
+  # Give the loop process a moment to fail fast on config/runtime errors.
+  sleep "$XTUNNEL_STARTUP_GRACE_SECONDS"
+
+  if kill -0 "$pid" 2>/dev/null; then
+    printf '[xtunnel-loop] started (pid=%s)\n' "$pid"
+    return 0
+  fi
+
+  rm -f "$XTUNNEL_PID_FILE"
+  printf '[xtunnel-loop][error] process exited during startup, check logs: %s\n' "$XTUNNEL_LOG_FILE" >&2
+  tail -n 40 "$XTUNNEL_LOG_FILE" >&2 || true
+  return 1
 }
 
 stop_loop() {
